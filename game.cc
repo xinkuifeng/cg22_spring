@@ -5,10 +5,49 @@
 
 using namespace std;
 
+struct Point {
+    int x;
+    int y;
+
+    Point() : x(0), y(0) {}
+    Point(int m, int n) : x(m), y(n) {}
+
+    void display(std::ostream & os) {
+        os << "(" << x << "," << y << ")";
+    }
+};
+
+std::ostream & operator<<(std::ostream & os, Point p) {
+    p.display(os);
+    return os;
+}
+
+struct Base {
+    int hp;
+    int mp;
+    Point pos;
+
+    Base() : hp(0), mp(0), pos(0, 0) {}
+
+    void display(std::ostream & os) {
+        os << "hp=" << hp;
+        os << "; mp=" << mp;
+        os << "; pos=" << pos;
+    }
+};
+
+std::ostream & operator<<(std::ostream & os, Base b) {
+    b.display(os);
+    return os;
+}
+
 /**
  * Auto-generated code below aims at helping you parse
  * the standard input according to the problem statement.
  **/
+
+const int kWidth = 17630;
+const int kHeight  = 9000;
 
 int main()
 {
@@ -18,12 +57,26 @@ int main()
     int heroes_per_player; // Always 3
     cin >> heroes_per_player; cin.ignore();
 
+    Base myBase, hisBase;
+    myBase.pos = Point(base_x, base_y);
+    hisBase.pos = Point(kWidth - base_x, kHeight - base_y);
+
     // game loop
     while (1) {
         for (int i = 0; i < 2; i++) {
             int health; // Your base health
             int mana; // Ignore in the first league; Spend ten mana to cast a spell
             cin >> health >> mana; cin.ignore();
+
+            if (i == 0) {
+                myBase.hp = health;
+                myBase.mp = mana;
+                cerr << "my base: " << myBase << endl;
+            } else {
+                hisBase.hp = health;
+                hisBase.mp = mana;
+                cerr << "his base: " << hisBase << endl;
+            }
         }
         int entity_count; // Amount of heros and monsters you can see
         cin >> entity_count; cin.ignore();

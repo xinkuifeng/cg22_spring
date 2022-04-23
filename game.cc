@@ -63,16 +63,19 @@ struct Entity {
         if (type != 0)
             return 0;
 
+        float l = distance(pos, p);
+        int ans = 0;
         if (target != 0) {
             if (threat == 1) {
-                return 100;
+                ans = 100 - l / 400;
             } else {
-                return 0;
+                // do nothing
             }
         } else {
-            float k = 1 / (distance(pos, p) + 1);
-            return 70 * k;
+            float k = 1 / (l + 1);
+            ans = 70 * k;
         }
+        return ans > 0 ? ans : 0;
     }
 };
 

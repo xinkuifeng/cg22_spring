@@ -14,6 +14,7 @@ const int kHeight = 9000;
 const int kRadiusOfBase = 5000;
 const int kMonsterSpeed = 400;
 const int kHeroSpeed = 800;
+const int kRadiusOfWind = 1280;
 
 /*****************************************************************************
  * Types
@@ -101,7 +102,18 @@ public:
 
 class Hero : public Entity {
 public:
+    Hero(Entity e): Entity(e) {}
 
+    void move(const Point & p) const {
+        cout << "MOVE " << p.x << " " << p.y << endl;
+    }
+
+    void wind(const Point & toward) const {
+        cout << "SPELL WIND " << toward.x << " " << toward.y
+             << " Súrë" << endl;
+    }
+
+private:
 };
 
 class Monster : public Entity {
@@ -185,6 +197,9 @@ int main()
     myBase.pos = Point(base_x, base_y);
     hisBase.pos = Point(kWidth - base_x, kHeight - base_y);
 
+    Point delta = Point(565, 565);
+    Point post = base_x == 0 ? myBase.pos + delta : myBase.pos - delta;
+
     // game loop
     while (1) {
         for (int i = 0; i < 2; i++) {
@@ -203,7 +218,7 @@ int main()
         show_base();
         int entity_count; // Amount of heros and monsters you can see
         cin >> entity_count; cin.ignore();
-        vector<Entity> myHeros;
+        vector<Hero> myHeros;
         vector<Monster> monsters;
         vector<Entity> hisHeros;
         for (int i = 0; i < entity_count; i++) {
@@ -263,16 +278,30 @@ int main()
         }
         for (int i = 0; i < heroes_per_player; i++) {
             const auto & hero = myHeros[i];
-            auto dist = distance(hero.pos, myBase.pos);
+            if (i == 2) {
+                if (monsters.size() != 0) {
+                    const auto & monster = monsters[0];
+                    auto l = distance(hero.pos, monster.pos);
+                    if (l <= kRadiusOfWind) {
+                        hero.wind(hisBase.pos);
+                    } else {
+                        hero.move(post);
+                    }
+                } else {
+                    hero.move(post);
+                }
+                continue;
+            }
 
+            auto dist = distance(hero.pos, myBase.pos);
             if (dist > 6000) {
                 // do not go away
-                cout << "MOVE " << myBase.pos.x << " " << myBase.pos.y << endl;
+                hero.move(myBase.pos);
             } else {
                 if (monsters.size() != 0) {
                     // fully focused
                     const auto & monster = monsters[0];
-                    cout << "MOVE " << monster.pos.x << " " << monster.pos.y << endl;
+                    hero.move(monster.pos);
                 } else {
                     cout << "WAIT On Hold" << endl;
                 }

@@ -74,6 +74,11 @@ struct Base {
 
     Base() : hp(0), mp(0), pos(0, 0) {}
 
+    void update(int health, int mana) {
+        hp = health;
+        mp = mana;
+    }
+
     void display(std::ostream & os) const {
         os << "hp=" << hp;
         os << "; mp=" << mp;
@@ -157,34 +162,55 @@ std::ostream & operator<<(std::ostream & os, const Monster & m) {
 // risk of this entity based on the distance
 int eval_risk(const Base & ref, const Monster & m) {
     int ans = 0;
-    float l = distance(ref.pos, m.pos);
+    int eta = m.eta(ref);
 
     if (m.target != 0) {
+        // this unit is directing to our base
         if (m.threat == 1) {
-            ans = 100 - l / 400;
+            ans = 100 - eta;
         } else {
             // do nothing
         }
-    } else {
-        float k = 1 / (l + 1);
-        // if this unit can eventually reach to the base
-        if (m.eta(ref) > 0)
-            ans = 70 * k;
+    } else if (eta > 0) {
+        // this unit can eventually reach to the base
+        ans = 70 - eta;
     }
     return ans > 0 ? ans : 0;
 }
+
+class Brain {
+public:
+    Brain(const Base & ours, const Base & theirs) :
+        m_ourBase(ours), m_theirBase(theirs)
+    {
+    }
+
+    void updateOurBase(int hp, int mp) {
+        m_ourBase.update(hp, mp);
+    }
+    void updateTheirBase(int hp, int mp) {
+        m_theirBase.update(hp, mp);
+    }
+
+    void parse(const vector<Entity> & units) {
+
+    }
+
+    // for debug purpose
+    void showBase() {
+        cerr << "our base: " << m_ourBase << endl;
+        cerr << "their base: " << m_theirBase << endl;
+    }
+
+private:
+    Base m_ourBase;
+    Base m_theirBase;
+};
 
 /**
  * Auto-generated code below aims at helping you parse
  * the standard input according to the problem statement.
  **/
-
-Base myBase, hisBase;
-
-void show_base() {
-    cerr << "my base: " << myBase << endl;
-    cerr << "his base: " << hisBase << endl;
-}
 
 int main()
 {
@@ -194,30 +220,32 @@ int main()
     int heroes_per_player; // Always 3
     cin >> heroes_per_player; cin.ignore();
 
+    Base myBase, hisBase;
     myBase.pos = Point(base_x, base_y);
     hisBase.pos = Point(kWidth - base_x, kHeight - base_y);
 
     Point delta = Point(565, 565);
     Point post = base_x == 0 ? myBase.pos + delta : myBase.pos - delta;
 
+    Brain brain(myBase, hisBase);
+
     // game loop
     while (1) {
         for (int i = 0; i < 2; i++) {
             int health; // Your base health
-            int mana; // Ignore in the first league; Spend ten mana to cast a spell
+            int mana; // Spend ten mana to cast a spell
             cin >> health >> mana; cin.ignore();
 
             if (i == 0) {
-                myBase.hp = health;
-                myBase.mp = mana;
+                brain.updateOurBase(health, mana);
             } else {
-                hisBase.hp = health;
-                hisBase.mp = mana;
+                brain.updateTheirBase(health, mana);
             }
         }
-        show_base();
+        brain.showBase();
         int entity_count; // Amount of heros and monsters you can see
         cin >> entity_count; cin.ignore();
+        vector<Entity> units;
         vector<Hero> myHeros;
         vector<Monster> monsters;
         vector<Entity> hisHeros;
@@ -226,8 +254,8 @@ int main()
             int type; // 0=monster, 1=your hero, 2=opponent hero
             int x; // Position of this entity
             int y;
-            int shield_life; // Ignore for this league; Count down until shield spell fades
-            int is_controlled; // Ignore for this league; Equals 1 when this entity is under a control spell
+            int shield_life; // Count down until shield spell fades
+            int is_controlled; // Equals 1 when this entity is under a control spell
             int health; // Remaining health of this monster
             int vx; // Trajectory of this monster
             int vy;
@@ -246,6 +274,7 @@ int main()
             e.vy = vy;
             e.target = near_base;
             e.threat = threat_for;
+            units.push_back(e);
 
             switch (type) {
                 case 0: {
@@ -268,7 +297,7 @@ int main()
             }
         }
         // sort by risk level
-        sort(monsters.begin(), monsters.end(), [](const auto & a, const auto & b) {
+        sort(monsters.begin(), monsters.end(), [&](const auto & a, const auto & b) {
             return eval_risk(myBase, a) > eval_risk(myBase, b);
         });
         // display the monsters with the highest risk

@@ -15,6 +15,7 @@ const int kRadiusOfBase = 5000;
 const int kMonsterSpeed = 400;
 const int kHeroSpeed = 800;
 const int kRadiusOfWind = 1280;
+const int kHerosPerPlayer = 3;
 
 /*****************************************************************************
  * Types
@@ -113,6 +114,11 @@ public:
         cout << "MOVE " << p.x << " " << p.y << endl;
     }
 
+    void wait() const {
+        cout << "WAIT Ndorē" << endl;
+
+    }
+
     void wind(const Point & toward) const {
         cout << "SPELL WIND " << toward.x << " " << toward.y
              << " Súrë" << endl;
@@ -183,6 +189,9 @@ public:
     Brain(const Base & ours, const Base & theirs) :
         m_ourBase(ours), m_theirBase(theirs)
     {
+        Point delta = Point(565, 565);
+        Point m_guardianPos = m_ourBase.pos.x == 0 ?
+            m_ourBase.pos + delta : m_ourBase.pos - delta;
     }
 
     void updateOurBase(int hp, int mp) {
@@ -193,18 +202,133 @@ public:
     }
 
     void parse(const vector<Entity> & units) {
+        vector<Hero> heros;
+        vector<Monster> monsters;
+        vector<Hero> opponents;
 
+        for (const auto & e : units) {
+            switch (e.type) {
+                case 0:
+                    monsters.push_back(e);
+                    break;
+
+                case 1:
+                    heros.push_back(e);
+                    break;
+
+                case 2:
+                    opponents.push_back(e);
+                    break;
+
+                default:
+                    throw("unknown type");
+            }
+        }
+        swap(m_heros, heros);
+        swap(m_monsters, monsters);
+        swap(m_opponents, opponents);
+        classification(m_monsters);
+    }
+
+    void play() {
+        strategy_full_defence();
     }
 
     // for debug purpose
-    void showBase() {
+    void showBases() {
         cerr << "our base: " << m_ourBase << endl;
         cerr << "their base: " << m_theirBase << endl;
     }
 
+    void showMonsters() {
+        // highest risk to our base
+        cerr << "=== our enemies ===" << endl;
+        for (int i = 0; i < kHerosPerPlayer && i < m_enemies.size(); ++i) {
+            const auto & m = m_enemies[i];
+            cerr << m << "; ETA=" << m.eta(m_ourBase) << endl;
+        }
+        cerr << "=== our allies  ===" << endl;
+        // highest risk to their base
+        for (int i = 0; i < kHerosPerPlayer && i < m_allies.size(); ++i) {
+            const auto & m = m_allies[i];
+            cerr << m << "; ETA=" << m.eta(m_theirBase) << endl;
+        }
+    }
+
 private:
+    void classification(const vector<Monster> & monsters) {
+        vector<Monster> enemies;
+        vector<Monster> allies;
+        for (const auto & m : monsters) {
+            if (m.eta(m_ourBase) >= 0) {
+                // they can reach to our base
+                enemies.push_back(m);
+            } else {
+                // they could be useful to us
+                allies.push_back(m);
+            }
+        }
+        // sort by risk
+        sort(enemies.begin(), enemies.end(), [&](const auto & a, const auto & b) {
+            return eval_risk(m_ourBase, a) > eval_risk(m_ourBase, b);
+        });
+        sort(allies.begin(), allies.end(), [&](const auto & a, const auto & b) {
+            return eval_risk(m_theirBase, a) > eval_risk(m_theirBase, b);
+        });
+        swap(m_enemies, enemies);
+        swap(m_allies, allies);
+    }
+
+    void idle() {
+        for (int i = 0; i < kHerosPerPlayer; i++) {
+            m_heros[i].wait();
+        }
+    }
+
+    void strategy_full_defence() {
+        for (int i = 0; i < kHerosPerPlayer; i++) {
+            const auto & hero = m_heros[i];
+            if (i == 2) {
+                if (m_enemies.size() != 0) {
+                    const auto & monster = m_enemies[0];
+                    auto l = distance(hero.pos, monster.pos);
+                    if (l <= kRadiusOfWind) {
+                        hero.wind(m_theirBase.pos);
+                    } else {
+                        hero.move(m_guardianPos);
+                    }
+                } else {
+                    hero.move(m_guardianPos);
+                }
+                continue;
+            }
+
+            auto dist = distance(hero.pos, m_ourBase.pos);
+            if (dist > 6000) {
+                // do not go away
+                hero.move(m_ourBase.pos);
+            } else {
+                if (m_enemies.size() != 0) {
+                    // fully focused
+                    const auto & monster = m_enemies[0];
+                    hero.move(monster.pos);
+                } else {
+                    hero.wait();
+                }
+            }
+        }
+    }
+
     Base m_ourBase;
     Base m_theirBase;
+
+    Point m_guardianPos;
+
+    vector<Hero> m_heros;
+    vector<Monster> m_monsters;
+    vector<Hero> m_opponents;
+    vector<Monster> m_enemies;
+    vector<Monster> m_allies;
 };
 
 /**
@@ -242,13 +366,10 @@ int main()
                 brain.updateTheirBase(health, mana);
             }
         }
-        brain.showBase();
+        brain.showBases();
         int entity_count; // Amount of heros and monsters you can see
         cin >> entity_count; cin.ignore();
         vector<Entity> units;
-        vector<Hero> myHeros;
-        vector<Monster> monsters;
-        vector<Entity> hisHeros;
         for (int i = 0; i < entity_count; i++) {
             int id; // Unique identifier
             int type; // 0=monster, 1=your hero, 2=opponent hero
@@ -275,66 +396,9 @@ int main()
             e.target = near_base;
             e.threat = threat_for;
             units.push_back(e);
-
-            switch (type) {
-                case 0: {
-                    Monster m(e);
-                    if (m.eta(myBase) > 0) monsters.push_back(e);
-                    break;
-                }
-
-                case 1:
-                    myHeros.push_back(e);
-                    break;
-
-                case 2:
-                    hisHeros.push_back(e);
-                    break;
-
-                default:
-                    throw("unknown type");
-                    return -1;
-            }
         }
-        // sort by risk level
-        sort(monsters.begin(), monsters.end(), [&](const auto & a, const auto & b) {
-            return eval_risk(myBase, a) > eval_risk(myBase, b);
-        });
-        // display the monsters with the highest risk
-        for (int i = 0; i < 3 && i < monsters.size(); ++i) {
-            const auto & m = monsters[i];
-            cerr << m << "; ETA=" << m.eta(myBase) << endl;
-        }
-        for (int i = 0; i < heroes_per_player; i++) {
-            const auto & hero = myHeros[i];
-            if (i == 2) {
-                if (monsters.size() != 0) {
-                    const auto & monster = monsters[0];
-                    auto l = distance(hero.pos, monster.pos);
-                    if (l <= kRadiusOfWind) {
-                        hero.wind(hisBase.pos);
-                    } else {
-                        hero.move(post);
-                    }
-                } else {
-                    hero.move(post);
-                }
-                continue;
-            }
-
-            auto dist = distance(hero.pos, myBase.pos);
-            if (dist > 6000) {
-                // do not go away
-                hero.move(myBase.pos);
-            } else {
-                if (monsters.size() != 0) {
-                    // fully focused
-                    const auto & monster = monsters[0];
-                    hero.move(monster.pos);
-                } else {
-                    cout << "WAIT On Hold" << endl;
-                }
-            }
-        }
+        brain.parse(units);
+        brain.showMonsters();
+        brain.play();
     }
 }

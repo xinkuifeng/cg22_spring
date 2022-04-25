@@ -18,6 +18,7 @@ const int kHeroSpeed = 800;
 const int kRadiusOfWind = 1280;
 const int kHerosPerPlayer = 3;
 const int kHeroPhysicAttackRange = 800;
+const int kHeroViewRange = 2200;
 
 /*****************************************************************************
  * Types
@@ -146,12 +147,32 @@ std::ostream & operator<<(std::ostream & os, const Monster & m) {
     return os;
 }
 
-int find_max_hp(const vector<Monster> & enemies) {
+// find the monsters in the range
+vector<Monster> discover_in_range(const vector<Monster> & monsters, Point pos, int range) {
+    vector<Monster> ans;
+    for (const auto & m : monsters) {
+        if (distance(m.pos, pos) <= range) {
+            ans.push_back(m);
+        }
+    }
+    // sort from the nearest to the farest
+    sort(ans.begin(), ans.end(), [&](const auto & a, const auto & b) {
+        return distance(a.pos, pos) < distance(b.pos, pos);
+    });
+    return ans;
+}
+
+int find_max_hp(const vector<Monster> & monsters) {
     int ans = 0;
-    for (const auto & m : enemies) {
+    for (const auto & m : monsters) {
         ans = std::max(ans, m.hp);
     }
     return ans;
+}
+
+bool is_ending_game(const vector<Monster> & monsters) {
+    int maxHp = find_max_hp(monsters);
+    return maxHp > 24;
 }
 
 // risk of this entity based on the distance
@@ -191,23 +212,24 @@ public:
 
     void wind(const Point & toward) {
         m_cmd.str("");
-        m_cmd << "SPELL WIND " << toward.x << " " << toward.y
-             << " Súrë" << endl;
+        m_cmd << "SPELL WIND " << toward.x << " " << toward.y << " Súrë";
     }
 
     void protect(int id) {
         m_cmd.str("");
-        m_cmd << "SPELL SHIELD " << id
-             << " May force be with you" << endl;
+        m_cmd << "SPELL SHIELD " << id << " May force be with you";
     }
 
-    // find the enemies in the range
-    vector<Monster> discover(const vector<Monster> & enemies) const {
+    // find the monsters in the range
+    vector<Monster> discover(const vector<Monster> & monsters) const {
+        return discover_in_range(monsters, pos, kHeroViewRange);
+    }
+
+    vector<Monster> estimateWindAttackVictims(const vector<Monster> & monsters) const {
+        auto objects = discover_in_range(monsters, pos, kRadiusOfWind);
         vector<Monster> ans;
-        for (const auto & m : enemies) {
-            if (distance(pos, m.pos) <= kHeroPhysicAttackRange) {
-                ans.push_back(m);
-            }
+        for (const auto & o : objects) {
+            if (o.shield == 0) ans.push_back(o);
         }
         return ans;
     }
@@ -218,8 +240,7 @@ public:
         if (!orderReceived()) {
             wait();
         }
-        auto cmd = m_cmd.str();
-        cout << cmd << endl;
+        cout << m_cmd.str() << endl;
     }
 
 private:
@@ -235,8 +256,14 @@ public:
         m_guardianPos = m_ourBase.pos.x == 0 ?
             m_ourBase.pos + delta : m_ourBase.pos - delta;
 
+        m_midFieldPos = Point(kWidth / 2, kHeight / 2);
+
         delta = Point(4243, 4243);
         m_attackerPos = m_ourBase.pos.x == 0 ?
+            m_theirBase.pos - delta : m_theirBase.pos + delta;
+
+        delta = Point(3100, 3100);
+        m_goalAreaPos = m_ourBase.pos.x == 0 ?
             m_theirBase.pos - delta : m_theirBase.pos + delta;
     }
 
@@ -278,9 +305,16 @@ public:
 
     void play() {
         ++m_turns;
-        idle();
-        //strategy_full_defence();
+
+        // planning phase
+        //idle();
+        strategy_full_defence();
         //strategy_one_attacker();
+
+        // commit phase
+        for (auto & h : m_heros) {
+            h.confirmOrder();
+        }
     }
 
     // for debug purpose
@@ -291,18 +325,18 @@ public:
 
     void showMonsters() {
         // highest risk to our base
-        cerr << "=== our enemies ===" << endl;
+        cerr << "=== our enemies (" << m_enemies.size() << ") ===" << endl;
         for (int i = 0; i < kHerosPerPlayer && i < m_enemies.size(); ++i) {
             const auto & m = m_enemies[i];
             cerr << m << "; ETA=" << m.eta(m_ourBase) << endl;
         }
         // neutral
-        cerr << "=== passengers ===" << endl;
+        cerr << "=== passengers (" << m_neutral.size() << ") ===" << endl;
         for (int i = 0; i < kHerosPerPlayer && i < m_neutral.size(); ++i) {
             const auto & m = m_neutral[i];
             cerr << m << "; ETA=" << m.eta(m_theirBase) << endl;
         }
-        cerr << "=== our allies  ===" << endl;
+        cerr << "=== our allies (" << m_allies.size() << ") ===" << endl;
         // highest risk to their base
         for (int i = 0; i < kHerosPerPlayer && i < m_allies.size(); ++i) {
             const auto & m = m_allies[i];
@@ -343,13 +377,8 @@ private:
     }
 
     void idle() {
-        // cmd phase
         for (int i = 0; i < kHerosPerPlayer; i++) {
             m_heros[i].wait();
-        }
-        // end phase
-        for (auto & h : m_heros) {
-            h.confirmOrder();
         }
     }
 
@@ -381,44 +410,84 @@ private:
                     const auto & monster = m_enemies[0];
                     hero.move(monster.pos);
                 } else {
-                    hero.wait();
+                    hero.move(m_guardianPos);
                 }
             }
         }
     }
 
     void strategy_one_attacker() {
-        static bool attackerIsReady = false;
+        static bool midFieldReached = false;
+        static bool frontLineReached = false;
+        static bool endingGame = false;
         for (int i = 0; i < kHerosPerPlayer; i++) {
             auto & hero = m_heros[i];
             // attacker
             if (i == 2) {
-                // init
-                if (!attackerIsReady) {
+                // step1: go to the mid field
+                if (!midFieldReached) {
+                    if (distance(hero.pos, m_midFieldPos) < 20) {
+                        midFieldReached = true;
+                    } else {
+                        hero.move(m_midFieldPos);
+                    }
+                }
+                if (hero.orderReceived()) continue;
+
+                // step2: hunt wild mana
+                if (midFieldReached && !frontLineReached && m_ourBase.mp < 120) {
+                    auto monstersNearBy = hero.discover(m_monsters);
+                    if (!monstersNearBy.empty()) {
+                        hero.move(monstersNearBy[0].pos);
+                    } else {
+                        hero.move(m_midFieldPos);
+                    }
+                }
+                if (hero.orderReceived()) continue;
+
+                endingGame = is_ending_game(m_monsters);
+                if (endingGame) {
+                    endingGame = true;
+                    // bypass step3 and step4
+                    frontLineReached = true;
+                }
+
+                // step3: move to the front line
+                if (!frontLineReached) {
                     if (distance(hero.pos, m_attackerPos) < 20) {
-                        attackerIsReady = true;
+                        frontLineReached = true;
                     } else {
                         hero.move(m_attackerPos);
                         continue;
                     }
                 }
 
+                // step4: attack the farthest allies
+                if (!endingGame) {
+                    auto monstersNearBy = hero.discover(m_allies);
+                    if (!monstersNearBy.empty()) {
+                        hero.move(monstersNearBy.back().pos);
+                    } else {
+                        hero.move(m_attackerPos);
+                    }
+                }
+                if (hero.orderReceived()) continue;
+
+                // step5: ending game
                 auto monstersNearBy = hero.discover(m_monsters);
                 for (const auto & m : monstersNearBy) {
                     if (m.hp >= 20 && m.shield == 0) {
                         hero.protect(m.id);
-                        continue;
+                        break;
                     }
                 }
-                if (m_allies.size() != 0) {
-                    const auto & m = m_allies[0];
-                    hero.move(m.pos);
-                    continue;
-                } else {
-                    hero.wait();
-                    continue;
+                if (hero.orderReceived()) continue;
+
+                // step6: go crazy and throw objects
+                auto monstersToThrow = hero.estimateWindAttackVictims(m_monsters);
+                if (monstersToThrow.size() != 0) {
+                    hero.wind(m_theirBase.pos);
                 }
-                hero.wait();
                 continue;
             }
 
@@ -449,7 +518,9 @@ private:
     Base m_theirBase;
 
     Point m_guardianPos;
+    Point m_midFieldPos;
     Point m_attackerPos;
+    Point m_goalAreaPos;
 
     int m_turns;
 

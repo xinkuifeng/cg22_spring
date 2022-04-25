@@ -11,10 +11,18 @@ using namespace std;
  * Constants
  ****************************************************************************/
 const double pi = std::acos(-1);
+const int k15Degree = 15;
+const int k30Degree = 30;
+const int k45Degree = 45;
+const int k60Degree = 60;
+const int k75Degree = 75;
 
 const int kWidth = 17630;
 const int kHeight = 9000;
 const int kRadiusOfBase = 5000;
+const int kInnerCircle = 2800;
+const int kMidCircle = 4400;
+const int kOutterCircle = 6000;
 const int kMonsterSpeed = 400;
 const int kHeroSpeed = 800;
 const int kRadiusOfWind = 1280;
@@ -37,8 +45,14 @@ class Brain;
 vector<Monster> discover_in_range(const vector<Monster> & monsters, Point pos, int range);
 vector<int> discover_in_range(const vector<Hero> & heros, Point pos, int range);
 double convert_degree_to_radian(int degree);
+int convert_radian_to_degree(double theta);
 Point convert_radian_to_cartesian(const RadianPoint & rp);
-
+int calc_degree_between(const Point & ref, const Point & other);
+bool is_bottom_lane(const Point & ref, const Point & other);
+bool is_mid_lane(const Point & ref, const Point & other);
+bool is_up_lane(const Point & ref, const Point & other);
+bool is_lower_area(const Point & ref, const Point & other);
+bool is_upper_area(const Point & ref, const Point & other);
 
 /*****************************************************************************
  * Types
@@ -110,6 +124,48 @@ std::ostream & operator<<(std::ostream & os, const RadianPoint & rp) {
 
 double convert_degree_to_radian(int degree) {
     return pi * degree / 180;
+}
+
+int convert_radian_to_degree(double radian) {
+    return 180 * radian / pi;
+}
+
+bool is_bottom_lane(const Point & ref, const Point & other) {
+    int degree = calc_degree_between(ref, other);
+    if (degree < k30Degree) return true;
+    return false;
+}
+
+bool is_mid_lane(const Point & ref, const Point & other) {
+    int degree = calc_degree_between(ref, other);
+    if (degree > k30Degree && degree < k60Degree) return true;
+    return false;
+}
+
+bool is_up_lane(const Point & ref, const Point & other) {
+    int degree = calc_degree_between(ref, other);
+    if (degree >= k60Degree) return true;
+    return false;
+}
+
+bool is_upper_area(const Point & ref, const Point & other) {
+    return !is_lower_area(ref, other);
+}
+
+bool is_lower_area(const Point & ref, const Point & other) {
+    int degree = calc_degree_between(ref, other);
+    if (degree <= k45Degree) return true;
+    return false;
+}
+
+int calc_degree_between(const Point & ref, const Point & other) {
+    int delta_x = other.x - ref.x;
+    int delta_y = other.y - ref.y;
+    if (delta_x == 0) {
+        return delta_y >= 0 ? 90 : 0;
+    }
+    double theta = std::atan((double) delta_y / delta_x);
+    return convert_radian_to_degree(theta);
 }
 
 Point convert_radian_to_cartesian(const RadianPoint & rp) {
@@ -245,12 +301,12 @@ int eval_risk(const Base & ref, const Monster & m) {
 
 class Hero : public Entity {
 public:
-    Hero(Entity e): Entity(e), m_cmd("")
+    Hero(Entity e): Entity(e), m_cmd(""), m_spellingWind(false)
     {
     }
 
     void move(const Point & p) {
-        m_cmd.str("");
+        undo();
         m_cmd << "MOVE " << p.x << " " << p.y;
     }
 
@@ -266,23 +322,30 @@ public:
         move(base.pos, r, angle, mirrow);
     }
 
+    void say(string words) {
+        m_cmd << " " << words;
+    }
+
     void wait() {
-        m_cmd.str("");
+        undo();
         m_cmd << "WAIT Ndorē";
     }
 
     void wind(const Point & toward) {
-        m_cmd.str("");
+        undo();
+        m_spellingWind = true;
         m_cmd << "SPELL WIND " << toward.x << " " << toward.y << " Súrë";
     }
 
+    bool isWinding() const { return m_spellingWind; }
+
     void protect(int id) {
-        m_cmd.str("");
+        undo();
         m_cmd << "SPELL SHIELD " << id << " May force be with you";
     }
 
     void control(int id, const Point & toward) {
-        m_cmd.str("");
+        undo();
         m_cmd << "SPELL CONTROL " << id << " " << toward.x << " " << toward.y << " Help";
     }
 
@@ -315,7 +378,13 @@ public:
     }
 
 private:
+    void undo() {
+        m_cmd.str("");
+        m_spellingWind = false;
+    }
+
     std::stringstream m_cmd;
+    bool m_spellingWind;
 };
 
 // find Hero (its id) in the range
@@ -390,9 +459,9 @@ public:
         ++m_turns;
 
         // planning phase
-        idle();
+        //idle();
         //strategy_full_defence();
-        //strategy_one_attacker();
+        strategy_one_attacker();
 
         // commit phase
         for (auto & h : m_heros) {
@@ -460,13 +529,12 @@ private:
     }
 
     void idle() {
-        m_heros[0].move(m_ourBase, 6000, 20);
-        m_heros[1].move(m_ourBase, 6000, 45);
-        m_heros[2].move(m_ourBase, 6000, 70);
-        //for (int i = 0; i < kHerosPerPlayer; i++) {
-        //    //m_heros[i].wait();
-        //    m_heros[i].move(m_ourBase, 6000, 30 * (i + 1
-        //}
+        //m_heros[0].move(m_ourBase, kOutterCircle, 10);
+        //m_heros[1].move(m_ourBase, kMidCircle, 30);
+        //m_heros[2].move(m_ourBase, kOutterCircle, 75);
+        for (int i = 0; i < kHerosPerPlayer; i++) {
+            m_heros[i].wait();
+        }
     }
 
     void strategy_full_defence() {
@@ -511,126 +579,196 @@ private:
             auto & hero = m_heros[i];
             // attacker
             if (i == 2) {
-                // step1: go to the mid field
-                if (!midFieldReached) {
-                    if (distance(hero.pos, m_midFieldPos) < 20) {
-                        midFieldReached = true;
-                    } else {
-                        hero.move(m_midFieldPos);
-                    }
-                }
-                if (hero.orderReceived()) continue;
+                //// step1: go to the mid field
+                //if (!midFieldReached) {
+                //    if (distance(hero.pos, m_midFieldPos) < 20) {
+                //        midFieldReached = true;
+                //    } else {
+                //        hero.move(m_midFieldPos);
+                //    }
+                //}
+                //if (hero.orderReceived()) continue;
 
-                // step2: hunt wild mana
-                if (midFieldReached && !frontLineReached && m_ourBase.mp < 120) {
-                    auto monstersNearBy = hero.discover(m_monsters);
-                    if (!monstersNearBy.empty()) {
-                        hero.move(monstersNearBy[0].pos);
-                    } else {
-                        hero.move(m_midFieldPos);
-                    }
-                }
-                if (hero.orderReceived()) continue;
+                //// step2: hunt wild mana
+                //if (midFieldReached && !frontLineReached && m_ourBase.mp < 120) {
+                //    auto monstersNearBy = hero.discover(m_monsters);
+                //    if (!monstersNearBy.empty()) {
+                //        hero.move(monstersNearBy[0].pos);
+                //    } else {
+                //        hero.move(m_midFieldPos);
+                //    }
+                //}
+                //if (hero.orderReceived()) continue;
 
-                endingGame = is_ending_game(m_monsters);
-                if (endingGame) {
-                    endingGame = true;
-                    // bypass step3 and step4
-                    frontLineReached = true;
-                }
+                //endingGame = is_ending_game(m_monsters);
+                //if (endingGame) {
+                //    endingGame = true;
+                //    // bypass step3 and step4
+                //    frontLineReached = true;
+                //}
 
-                // step3: move to the front line
-                cerr << "Let the attack begin!" << endl;
-                if (!frontLineReached) {
-                    if (distance(hero.pos, m_attackerPos) < 20) {
-                        frontLineReached = true;
-                    } else {
-                        hero.move(m_attackerPos);
-                        continue;
-                    }
-                }
+                //// step3: move to the front line
+                //cerr << "Let the attack begin!" << endl;
+                //if (!frontLineReached) {
+                //    if (distance(hero.pos, m_attackerPos) < 20) {
+                //        frontLineReached = true;
+                //    } else {
+                //        hero.move(m_attackerPos);
+                //        continue;
+                //    }
+                //}
 
-                // step4: attack the farthest allies
-                if (!endingGame) {
-                    auto monstersNearBy = hero.discover(m_allies);
-                    if (!monstersNearBy.empty()) {
-                        hero.move(monstersNearBy.back().pos);
-                    } else {
-                        auto monstersNearBy = hero.discover(m_neutral);
-                        for (const auto & m : monstersNearBy) {
-                            if (!m.controlled) {
-                                hero.control(monstersNearBy.front().id, m_theirBase.pos);
-                                break;
-                            }
-                        }
-                        if (!hero.orderReceived()) hero.move(m_attackerPos);
-                    }
-                }
-                if (hero.orderReceived()) continue;
+                //// step4: attack the farthest allies
+                //if (!endingGame) {
+                //    auto monstersNearBy = hero.discover(m_allies);
+                //    if (!monstersNearBy.empty()) {
+                //        hero.move(monstersNearBy.back().pos);
+                //    } else {
+                //        auto monstersNearBy = hero.discover(m_neutral);
+                //        for (const auto & m : monstersNearBy) {
+                //            if (!m.controlled) {
+                //                hero.control(monstersNearBy.front().id, m_theirBase.pos);
+                //                break;
+                //            }
+                //        }
+                //        if (!hero.orderReceived()) hero.move(m_attackerPos);
+                //    }
+                //}
+                //if (hero.orderReceived()) continue;
 
-                // step5: ending game
-                cerr << "Ending game!" << endl;
-                auto monstersNearBy = hero.discover(m_monsters);
-                sort(monstersNearBy.begin(), monstersNearBy.end(), [&](const auto & a, const auto & b) {
-                    return a.eta(m_theirBase) < b.eta(m_theirBase);
-                });
-                if (monstersNearBy.empty()) {
-                    hero.move(m_attackerPos);
-                } else {
-                    auto opponentsNearBy = hero.discover(m_opponents);
-                    if (opponentsNearBy.empty() || m_theirBase.mp <= kMagicManaCost) {
-                        auto throwables = hero.estimateWindAttackVictims(m_monsters);
-                        if (throwables.size() != 0 && m_ourBase.mp >= kMagicManaCost) {
-                            hero.wind(m_theirBase.pos);
-                        } else {
-                            // do nothing
-                        }
-                    } else {
-                        for (const auto & m : monstersNearBy) {
-                            if (m.hp >= 20 && m.shield == 0) {
-                                hero.protect(m.id);
-                                break;
-                            }
-                        }
-                    }
-                    if (!hero.orderReceived()) hero.move(monstersNearBy.back().pos);
-                }
+                //// step5: ending game
+                //cerr << "Ending game!" << endl;
+                //auto monstersNearBy = hero.discover(m_monsters);
+                //sort(monstersNearBy.begin(), monstersNearBy.end(), [&](const auto & a, const auto & b) {
+                //    return a.eta(m_theirBase) < b.eta(m_theirBase);
+                //});
+                //if (monstersNearBy.empty()) {
+                //    hero.move(m_attackerPos);
+                //} else {
+                //    auto opponentsNearBy = hero.discover(m_opponents);
+                //    if (opponentsNearBy.empty() || m_theirBase.mp <= kMagicManaCost) {
+                //        auto throwables = hero.estimateWindAttackVictims(m_monsters);
+                //        if (throwables.size() != 0 && m_ourBase.mp >= kMagicManaCost) {
+                //            hero.wind(m_theirBase.pos);
+                //        } else {
+                //            // do nothing
+                //        }
+                //    } else {
+                //        for (const auto & m : monstersNearBy) {
+                //            if (m.hp >= 20 && m.shield == 0) {
+                //                hero.protect(m.id);
+                //                break;
+                //            }
+                //        }
+                //    }
+                //    if (!hero.orderReceived()) hero.move(monstersNearBy.back().pos);
+                //}
                 continue;
             }
 
             // goal-keeper
-            if (i == 0) {
-                auto dist = distance(hero.pos, m_ourBase.pos);
-                if (dist > 3000) {
-                    hero.move(m_guardianPos);
-                } else if (m_enemies.size() != 0) {
-                    auto throwables = hero.estimateWindAttackVictims(m_enemies);
-                    if (throwables.size() != 0 && m_ourBase.mp >= kMagicManaCost) {
+            //if (i == 0) {
+            //    auto dist = distance(hero.pos, m_ourBase.pos);
+            //    if (dist > 3000) {
+            //        hero.move(m_guardianPos);
+            //    } else if (m_enemies.size() != 0) {
+            //        auto throwables = hero.estimateWindAttackVictims(m_enemies);
+            //        if (throwables.size() != 0 && m_ourBase.mp >= kMagicManaCost) {
+            //            hero.wind(m_theirBase.pos);
+            //        } else {
+            //            hero.move(m_enemies.front().pos);
+            //        }
+            //    } else {
+            //        hero.move(m_guardianPos);
+            //    }
+            //    continue;
+            //}
+
+            // defenders
+            auto dist = distance(hero.pos, m_ourBase.pos);
+            int radiusOfDefence;
+            if (endingGame) {
+                radiusOfDefence = kInnerCircle;
+            } else if (frontLineReached) {
+                radiusOfDefence = kMidCircle;
+            } else {
+                radiusOfDefence = kOutterCircle;
+            }
+            if (m_enemies.empty()) {
+                auto monstersNearBy = hero.discover(m_monsters);
+                if (monstersNearBy.size() != 0) {
+                    hero.move(monstersNearBy.front().pos);
+                    hero.say("Faralë");
+                } else {
+                    // go to the defence post
+                    hero.move(m_ourBase, radiusOfDefence, i * 60 + 15);
+                    hero.say("Glories");
+                }
+            } else {
+                auto distBaseMonster = distance(m_ourBase.pos, m_enemies.front().pos);
+                if (distBaseMonster <= kInnerCircle) {
+                    if (  canUseWindSpell(hero, m_enemies.front())
+                       && !m_heros[0].isWinding()) {
                         hero.wind(m_theirBase.pos);
                     } else {
                         hero.move(m_enemies.front().pos);
+                        hero.say("Focus!");
+                    }
+                } else if (distBaseMonster > kInnerCircle && distBaseMonster <= kMidCircle) {
+                    hero.move(m_enemies.front().pos);
+                    hero.say("Catch");
+                } else if (distBaseMonster > kMidCircle && distBaseMonster <= kOutterCircle) {
+                    vector<Monster> monstersInArea;
+                    for (const auto & m : m_enemies) {
+                        int deg = calc_degree_between(m_ourBase.pos, m.pos);
+                        if (deg >= (i * 45) && deg < ((i + 1) * 45)) {
+                            monstersInArea.push_back(m);
+                        }
+                    }
+                    if (monstersInArea.size() != 0) {
+                        hero.move(monstersInArea.front().pos);
+                        hero.say("Invaders!");
+                    } else {
+                        hero.move(m_ourBase, radiusOfDefence - 400, i * 60 + 15);
+                        hero.say("Withdraw");
                     }
                 } else {
-                    hero.move(m_guardianPos);
+                    auto monstersNearBy = hero.discover(m_monsters);
+                    if (monstersNearBy.size() != 0) {
+                        hero.move(monstersNearBy.front().pos);
+                        hero.say("Faralë");
+                    }
                 }
-                continue;
             }
 
-            // defender
-            auto dist = distance(hero.pos, m_ourBase.pos);
-            if (dist > 6000) {
-                // do not go away
-                hero.move(m_ourBase.pos);
-            } else {
-                if (m_enemies.size() != 0) {
-                    // fully focused
-                    const auto & monster = m_enemies[0];
-                    hero.move(monster.pos);
-                } else {
-                    hero.move(m_guardianPos);
-                }
-            }
+            //if (dist > 6000) {
+            //    // do not go away
+            //    hero.move(m_ourBase.pos);
+            //} else {
+            //    if (m_enemies.size() != 0) {
+            //        // fully focused
+            //        const auto & monster = m_enemies[0];
+            //        hero.move(monster.pos);
+            //    } else {
+            //        hero.move(m_guardianPos);
+            //    }
+            //}
         }
+    }
+
+    bool canUseWindSpell(const Hero & hero, const Monster & monster) {
+        auto dist = distance(hero.pos, monster.pos);
+        if (dist <= kRadiusOfWind && m_ourBase.mp >= kMagicManaCost && monster.shield == 0) {
+            return true;
+        }
+        return false;
+    }
+
+    bool canUseWindSpell(const Hero & hero, const vector<Monster> & monsters) {
+        for (const auto & m : monsters) {
+            if (canUseWindSpell(hero, m)) return true;
+        }
+        return false;
     }
 
     Base m_ourBase;

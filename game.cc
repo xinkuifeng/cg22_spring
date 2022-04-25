@@ -1,5 +1,7 @@
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
+#include <ctime>
 #include <iostream>
 #include <sstream>
 #include <string>
@@ -53,6 +55,7 @@ bool is_mid_lane(const Point & ref, const Point & other);
 bool is_up_lane(const Point & ref, const Point & other);
 bool is_lower_area(const Point & ref, const Point & other);
 bool is_upper_area(const Point & ref, const Point & other);
+Point get_random_position(const Point & pos);
 
 /*****************************************************************************
  * Types
@@ -103,6 +106,14 @@ Point operator-(const Point & p1, const Point & p2) {
 std::ostream & operator<<(std::ostream & os, const Point & p) {
     p.display(os);
     return os;
+}
+
+Point get_random_position(const Point & pos)
+{
+    std::srand(std::time(nullptr));
+    int delta_x = -1000 + std::rand() * 2000;
+    int delta_y = -1000 + std::rand() * 2000;
+    return Point(pos.x + delta_x, pos.y +delta_y);
 }
 
 struct RadianPoint {
@@ -417,6 +428,8 @@ public:
         delta = Point(3100, 3100);
         m_goalAreaPos = m_ourBase.pos.x == 0 ?
             m_theirBase.pos - delta : m_theirBase.pos + delta;
+
+        m_phase = StartingGame;
     }
 
     void updateOurBase(int hp, int mp) {
@@ -425,6 +438,12 @@ public:
     void updateTheirBase(int hp, int mp) {
         m_theirBase.update(hp, mp);
     }
+
+    enum Phase {
+        StartingGame,
+        MiddleGame,
+        EndingGame
+    };
 
     void parse(const vector<Entity> & units) {
         vector<Hero> heros;
@@ -457,6 +476,15 @@ public:
 
     void play() {
         ++m_turns;
+
+        int maxHp = find_max_hp(m_enemies);
+        if (maxHp >= 24) {
+            m_phase = EndingGame;
+        } else if (m_turns >= 110 || m_ourBase.mp >= 120 || maxHp >= 18) {
+            m_phase = MiddleGame;
+        } else {
+            // do nothing
+        }
 
         // planning phase
         //idle();
@@ -571,100 +599,213 @@ private:
         }
     }
 
+    void command_the_attacker() {
+        switch (m_phase) {
+            case StartingGame: go_hunting(); break;
+            case MiddleGame: summon_allies(); break;
+            case EndingGame: protect_allies(); break;
+            default: throw("unknown phase.");
+        }
+    }
+
+    // the attacker goes hunting
+    void go_hunting() {
+        auto & hero = m_heros[2];
+
+        auto monstersNearBy = hero.discover(m_monsters);
+        if (monstersNearBy.empty()) {
+            auto distToMid = distance(hero.pos, m_midFieldPos);
+            if (distToMid >= 2400) {
+                hero.move(m_midFieldPos);
+                hero.say("Glories");
+            } else {
+                Point dest = get_random_position(hero.pos);
+                hero.move(dest);
+                hero.say("Gank");
+            }
+        } else {
+            //if (m_ourBase.mp >= 8 * kMagicManaCost) {
+            //    for (auto it = monstersNearBy.rbegin(); it != monstersNearBy.rend(); ++it) {
+            //        if (it->eta(m_ourBase) > 0) {
+            //            hero.control(it->id, hero.pos);
+            //            break;
+            //        }
+            //    }
+            //    if (!hero.orderReceived())
+            //        hero.control(monstersNearBy.back().id, hero.pos);
+            //    hero.say("Let's play");
+            //} else {
+                hero.move(monstersNearBy.front().pos);
+                hero.say("Faralë");
+            //}
+        }
+    }
+
+    void summon_allies() {
+        auto & hero = m_heros[2];
+
+        auto monstersNearBy = hero.discover(m_monsters);
+        if (monstersNearBy.empty()) {
+            // switch area
+            if (is_upper_area(m_theirBase.pos, hero.pos)) {
+                hero.move(m_theirBase, kOutterCircle, 15);
+                hero.say("Attack");
+            } else {
+                hero.move(m_theirBase, kOutterCircle, 75);
+                hero.say("Attack");
+            }
+        } else {
+            if (m_ourBase.mp >= kMagicManaCost) {
+                for (const auto & m : monstersNearBy) {
+                    if (m.eta(m_theirBase) < 0) {
+                        hero.control(m.id, m_theirBase.pos);
+                        break;
+                    }
+                }
+                //if (!hero.orderReceived())
+                //    hero.control(monstersNearBy.front().id, m_theirBase.pos);
+            }
+            if (!hero.orderReceived()) {
+                // switch area
+                if (is_upper_area(m_theirBase.pos, hero.pos)) {
+                    hero.move(m_theirBase, kOutterCircle, 15);
+                    hero.say("Attack");
+                } else {
+                    hero.move(m_theirBase, kOutterCircle, 75);
+                    hero.say("Attack");
+                }
+            }
+        }
+    }
+
+    void protect_allies() {
+        auto & hero = m_heros[2];
+
+        auto monstersNearBy = hero.discover(m_monsters);
+        if (monstersNearBy.empty()) {
+            // switch area
+            if (is_upper_area(m_theirBase.pos, hero.pos)) {
+                hero.move(m_theirBase, kMidCircle, 15);
+                hero.say("Focus");
+            } else {
+                hero.move(m_theirBase, kMidCircle, 75);
+                hero.say("Focus");
+            }
+        } else {
+            if (m_ourBase.mp >= kMagicManaCost) {
+                for (const auto & m : monstersNearBy) {
+                    if (m.hp >= 20 && m.shield == 0) {
+                        hero.protect(m.id);
+                        hero.say("May force be with you");
+                        break;
+                    }
+                }
+                if (!hero.orderReceived())
+                    hero.wind(m_theirBase.pos);
+            } else {
+                // switch area
+                if (is_upper_area(m_theirBase.pos, hero.pos)) {
+                    hero.move(m_theirBase, kOutterCircle, 15);
+                    hero.say("Focus");
+                } else {
+                    hero.move(m_theirBase, kOutterCircle, 75);
+                    hero.say("Focus");
+                }
+            }
+        }
+    }
+
     void strategy_one_attacker() {
-        static bool midFieldReached = false;
-        static bool frontLineReached = false;
-        static bool endingGame = false;
-        for (int i = 0; i < kHerosPerPlayer; i++) {
+        for (int i = 0; i < 2; i++) {
             auto & hero = m_heros[i];
             // attacker
-            if (i == 2) {
-                //// step1: go to the mid field
-                //if (!midFieldReached) {
-                //    if (distance(hero.pos, m_midFieldPos) < 20) {
-                //        midFieldReached = true;
-                //    } else {
-                //        hero.move(m_midFieldPos);
-                //    }
-                //}
-                //if (hero.orderReceived()) continue;
+            //if (i == 2) {
+            //    // step1: go to the mid field
+            //    if (!midFieldReached) {
+            //        if (distance(hero.pos, m_midFieldPos) < 20) {
+            //            midFieldReached = true;
+            //        } else {
+            //            hero.move(m_midFieldPos);
+            //        }
+            //    }
+            //    if (hero.orderReceived()) continue;
 
-                //// step2: hunt wild mana
-                //if (midFieldReached && !frontLineReached && m_ourBase.mp < 120) {
-                //    auto monstersNearBy = hero.discover(m_monsters);
-                //    if (!monstersNearBy.empty()) {
-                //        hero.move(monstersNearBy[0].pos);
-                //    } else {
-                //        hero.move(m_midFieldPos);
-                //    }
-                //}
-                //if (hero.orderReceived()) continue;
+            //    // step2: hunt wild mana
+            //    if (midFieldReached && !frontLineReached && m_ourBase.mp < 120) {
+            //        auto monstersNearBy = hero.discover(m_monsters);
+            //        if (!monstersNearBy.empty()) {
+            //            hero.move(monstersNearBy[0].pos);
+            //        } else {
+            //            hero.move(m_midFieldPos);
+            //        }
+            //    }
+            //    if (hero.orderReceived()) continue;
 
-                //endingGame = is_ending_game(m_monsters);
-                //if (endingGame) {
-                //    endingGame = true;
-                //    // bypass step3 and step4
-                //    frontLineReached = true;
-                //}
+            //    endingGame = is_ending_game(m_monsters);
+            //    if (endingGame) {
+            //        endingGame = true;
+            //        // bypass step3 and step4
+            //        frontLineReached = true;
+            //    }
 
-                //// step3: move to the front line
-                //cerr << "Let the attack begin!" << endl;
-                //if (!frontLineReached) {
-                //    if (distance(hero.pos, m_attackerPos) < 20) {
-                //        frontLineReached = true;
-                //    } else {
-                //        hero.move(m_attackerPos);
-                //        continue;
-                //    }
-                //}
+            //    // step3: move to the front line
+            //    cerr << "Let the attack begin!" << endl;
+            //    if (!frontLineReached) {
+            //        if (distance(hero.pos, m_attackerPos) < 20) {
+            //            frontLineReached = true;
+            //        } else {
+            //            hero.move(m_attackerPos);
+            //            continue;
+            //        }
+            //    }
 
-                //// step4: attack the farthest allies
-                //if (!endingGame) {
-                //    auto monstersNearBy = hero.discover(m_allies);
-                //    if (!monstersNearBy.empty()) {
-                //        hero.move(monstersNearBy.back().pos);
-                //    } else {
-                //        auto monstersNearBy = hero.discover(m_neutral);
-                //        for (const auto & m : monstersNearBy) {
-                //            if (!m.controlled) {
-                //                hero.control(monstersNearBy.front().id, m_theirBase.pos);
-                //                break;
-                //            }
-                //        }
-                //        if (!hero.orderReceived()) hero.move(m_attackerPos);
-                //    }
-                //}
-                //if (hero.orderReceived()) continue;
+            //    // step4: attack the farthest allies
+            //    if (!endingGame) {
+            //        auto monstersNearBy = hero.discover(m_allies);
+            //        if (!monstersNearBy.empty()) {
+            //            hero.move(monstersNearBy.back().pos);
+            //        } else {
+            //            auto monstersNearBy = hero.discover(m_neutral);
+            //            for (const auto & m : monstersNearBy) {
+            //                if (!m.controlled) {
+            //                    hero.control(monstersNearBy.front().id, m_theirBase.pos);
+            //                    break;
+            //                }
+            //            }
+            //            if (!hero.orderReceived()) hero.move(m_attackerPos);
+            //        }
+            //    }
+            //    if (hero.orderReceived()) continue;
 
-                //// step5: ending game
-                //cerr << "Ending game!" << endl;
-                //auto monstersNearBy = hero.discover(m_monsters);
-                //sort(monstersNearBy.begin(), monstersNearBy.end(), [&](const auto & a, const auto & b) {
-                //    return a.eta(m_theirBase) < b.eta(m_theirBase);
-                //});
-                //if (monstersNearBy.empty()) {
-                //    hero.move(m_attackerPos);
-                //} else {
-                //    auto opponentsNearBy = hero.discover(m_opponents);
-                //    if (opponentsNearBy.empty() || m_theirBase.mp <= kMagicManaCost) {
-                //        auto throwables = hero.estimateWindAttackVictims(m_monsters);
-                //        if (throwables.size() != 0 && m_ourBase.mp >= kMagicManaCost) {
-                //            hero.wind(m_theirBase.pos);
-                //        } else {
-                //            // do nothing
-                //        }
-                //    } else {
-                //        for (const auto & m : monstersNearBy) {
-                //            if (m.hp >= 20 && m.shield == 0) {
-                //                hero.protect(m.id);
-                //                break;
-                //            }
-                //        }
-                //    }
-                //    if (!hero.orderReceived()) hero.move(monstersNearBy.back().pos);
-                //}
-                continue;
-            }
+            //    // step5: ending game
+            //    cerr << "Ending game!" << endl;
+            //    auto monstersNearBy = hero.discover(m_monsters);
+            //    sort(monstersNearBy.begin(), monstersNearBy.end(), [&](const auto & a, const auto & b) {
+            //        return a.eta(m_theirBase) < b.eta(m_theirBase);
+            //    });
+            //    if (monstersNearBy.empty()) {
+            //        hero.move(m_attackerPos);
+            //    } else {
+            //        auto opponentsNearBy = hero.discover(m_opponents);
+            //        if (opponentsNearBy.empty() || m_theirBase.mp <= kMagicManaCost) {
+            //            auto throwables = hero.estimateWindAttackVictims(m_monsters);
+            //            if (throwables.size() != 0 && m_ourBase.mp >= kMagicManaCost) {
+            //                hero.wind(m_theirBase.pos);
+            //            } else {
+            //                // do nothing
+            //            }
+            //        } else {
+            //            for (const auto & m : monstersNearBy) {
+            //                if (m.hp >= 20 && m.shield == 0) {
+            //                    hero.protect(m.id);
+            //                    break;
+            //                }
+            //            }
+            //        }
+            //        if (!hero.orderReceived()) hero.move(monstersNearBy.back().pos);
+            //    }
+            //    continue;
+            //}
 
             // goal-keeper
             //if (i == 0) {
@@ -687,12 +828,11 @@ private:
             // defenders
             auto dist = distance(hero.pos, m_ourBase.pos);
             int radiusOfDefence;
-            if (endingGame) {
-                radiusOfDefence = kInnerCircle;
-            } else if (frontLineReached) {
-                radiusOfDefence = kMidCircle;
-            } else {
-                radiusOfDefence = kOutterCircle;
+            switch (m_phase) {
+                case StartingGame: radiusOfDefence = kOutterCircle; break;
+                case MiddleGame: radiusOfDefence = kMidCircle; break;
+                case EndingGame: radiusOfDefence = kInnerCircle; break;
+                default: throw("unknow phase");
             }
             if (m_enemies.empty()) {
                 auto monstersNearBy = hero.discover(m_monsters);
@@ -754,6 +894,7 @@ private:
             //    }
             //}
         }
+        command_the_attacker();
     }
 
     bool canUseWindSpell(const Hero & hero, const Monster & monster) {
@@ -780,6 +921,7 @@ private:
     Point m_goalAreaPos;
 
     int m_turns;
+    Phase m_phase;
 
     vector<Hero> m_heros;
     vector<Monster> m_monsters;

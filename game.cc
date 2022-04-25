@@ -16,6 +16,7 @@ const int kMonsterSpeed = 400;
 const int kHeroSpeed = 800;
 const int kRadiusOfWind = 1280;
 const int kHerosPerPlayer = 3;
+const int kHeroPhysicAttackRange = 800;
 
 /*****************************************************************************
  * Types
@@ -106,27 +107,6 @@ public:
     int threat; // Given this monster's trajectory, is it a threat to 1=your base, 2=your opponent's base, 0=neither
 };
 
-class Hero : public Entity {
-public:
-    Hero(Entity e): Entity(e) {}
-
-    void move(const Point & p) const {
-        cout << "MOVE " << p.x << " " << p.y << endl;
-    }
-
-    void wait() const {
-        cout << "WAIT Ndorē" << endl;
-
-    }
-
-    void wind(const Point & toward) const {
-        cout << "SPELL WIND " << toward.x << " " << toward.y
-             << " Súrë" << endl;
-    }
-
-private:
-};
-
 class Monster : public Entity {
 public:
     Monster(Entity e): Entity(e), v(vx, vy) {}
@@ -165,6 +145,14 @@ std::ostream & operator<<(std::ostream & os, const Monster & m) {
     return os;
 }
 
+int find_max_hp(const vector<Monster> & enemies) {
+    int ans = 0;
+    for (const auto & m : enemies) {
+        ans = std::max(ans, m.hp);
+    }
+    return ans;
+}
+
 // risk of this entity based on the distance
 int eval_risk(const Base & ref, const Monster & m) {
     int ans = 0;
@@ -184,14 +172,54 @@ int eval_risk(const Base & ref, const Monster & m) {
     return ans > 0 ? ans : 0;
 }
 
+class Hero : public Entity {
+public:
+    Hero(Entity e): Entity(e) {}
+
+    void move(const Point & p) const {
+        cout << "MOVE " << p.x << " " << p.y << endl;
+    }
+
+    void wait() const {
+        cout << "WAIT Ndorē" << endl;
+    }
+
+    void wind(const Point & toward) const {
+        cout << "SPELL WIND " << toward.x << " " << toward.y
+             << " Súrë" << endl;
+    }
+
+    void protect(int id) const {
+        cout << "SPELL SHIELD " << id
+             << " May force be with you" << endl;
+    }
+
+    // find the enemies in the range
+    vector<Monster> discover(const vector<Monster> & enemies) const {
+        vector<Monster> ans;
+        for (const auto & m : enemies) {
+            if (distance(pos, m.pos) <= kHeroPhysicAttackRange) {
+                ans.push_back(m);
+            }
+        }
+        return ans;
+    }
+
+private:
+};
+
 class Brain {
 public:
     Brain(const Base & ours, const Base & theirs) :
-        m_ourBase(ours), m_theirBase(theirs)
+        m_ourBase(ours), m_theirBase(theirs), m_turns(0)
     {
         Point delta = Point(565, 565);
-        Point m_guardianPos = m_ourBase.pos.x == 0 ?
+        m_guardianPos = m_ourBase.pos.x == 0 ?
             m_ourBase.pos + delta : m_ourBase.pos - delta;
+
+        delta = Point(4243, 4243);
+        m_attackerPos = m_ourBase.pos.x == 0 ?
+            m_theirBase.pos - delta : m_theirBase.pos + delta;
     }
 
     void updateOurBase(int hp, int mp) {
@@ -231,7 +259,9 @@ public:
     }
 
     void play() {
-        strategy_full_defence();
+        ++m_turns;
+        //strategy_full_defence();
+        strategy_one_attacker();
     }
 
     // for debug purpose
@@ -247,6 +277,12 @@ public:
             const auto & m = m_enemies[i];
             cerr << m << "; ETA=" << m.eta(m_ourBase) << endl;
         }
+        // neutral
+        cerr << "=== passengers ===" << endl;
+        for (int i = 0; i < kHerosPerPlayer && i < m_neutral.size(); ++i) {
+            const auto & m = m_neutral[i];
+            cerr << m << "; ETA=" << m.eta(m_theirBase) << endl;
+        }
         cerr << "=== our allies  ===" << endl;
         // highest risk to their base
         for (int i = 0; i < kHerosPerPlayer && i < m_allies.size(); ++i) {
@@ -259,10 +295,14 @@ private:
     void classification(const vector<Monster> & monsters) {
         vector<Monster> enemies;
         vector<Monster> allies;
+        vector<Monster> neutral;
         for (const auto & m : monsters) {
             if (m.eta(m_ourBase) >= 0) {
                 // they can reach to our base
                 enemies.push_back(m);
+            } else if (m.target == 0) {
+                // they are not near a base
+                neutral.push_back(m);
             } else {
                 // they could be useful to us
                 allies.push_back(m);
@@ -272,10 +312,14 @@ private:
         sort(enemies.begin(), enemies.end(), [&](const auto & a, const auto & b) {
             return eval_risk(m_ourBase, a) > eval_risk(m_ourBase, b);
         });
+        sort(neutral.begin(), neutral.end(), [&](const auto & a, const auto & b) {
+            return eval_risk(m_theirBase, a) > eval_risk(m_theirBase, b);
+        });
         sort(allies.begin(), allies.end(), [&](const auto & a, const auto & b) {
             return eval_risk(m_theirBase, a) > eval_risk(m_theirBase, b);
         });
         swap(m_enemies, enemies);
+        swap(m_neutral, neutral);
         swap(m_allies, allies);
     }
 
@@ -319,15 +363,77 @@ private:
         }
     }
 
+    void strategy_one_attacker() {
+        static bool attackerIsReady = false;
+        for (int i = 0; i < kHerosPerPlayer; i++) {
+            const auto & hero = m_heros[i];
+            // attacker
+            if (i == 2) {
+                // init
+                if (!attackerIsReady) {
+                    if (distance(hero.pos, m_attackerPos) < 20) {
+                        attackerIsReady = true;
+                    } else {
+                        hero.move(m_attackerPos);
+                        continue;
+                    }
+                }
+
+                auto monstersNearBy = hero.discover(m_monsters);
+                for (const auto & m : monstersNearBy) {
+                    if (m.hp >= 20 && m.shield == 0) {
+                        hero.protect(m.id);
+                        continue;
+                    }
+                }
+                if (m_allies.size() != 0) {
+                    const auto & m = m_allies[0];
+                    hero.move(m.pos);
+                    continue;
+                } else {
+                    hero.wait();
+                    continue;
+                }
+                hero.wait();
+                continue;
+            }
+
+            // defenders
+            auto dist = distance(hero.pos, m_ourBase.pos);
+            if (dist > 6000) {
+                // do not go away
+                hero.move(m_guardianPos);
+            } else {
+                auto enemiesNearBy = hero.discover(m_enemies);
+                auto maxHp = find_max_hp(enemiesNearBy);
+
+                if (maxHp > 8 && dist <= 800 && i == 0) {
+                    // very urgent case
+                    hero.wind(m_theirBase.pos);
+                } else if (m_enemies.size() != 0) {
+                    // fully focused
+                    const auto & monster = m_enemies[0];
+                    hero.move(monster.pos);
+                } else {
+                    hero.wait();
+                }
+            }
+        }
+    }
+
     Base m_ourBase;
     Base m_theirBase;
 
     Point m_guardianPos;
+    Point m_attackerPos;
+
+    int m_turns;
 
     vector<Hero> m_heros;
     vector<Monster> m_monsters;
     vector<Hero> m_opponents;
     vector<Monster> m_enemies;
+    vector<Monster> m_neutral;
     vector<Monster> m_allies;
 };
 

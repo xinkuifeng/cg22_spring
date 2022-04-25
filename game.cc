@@ -1,8 +1,9 @@
+#include <algorithm>
 #include <cmath>
 #include <iostream>
+#include <sstream>
 #include <string>
 #include <vector>
-#include <algorithm>
 
 using namespace std;
 
@@ -174,23 +175,29 @@ int eval_risk(const Base & ref, const Monster & m) {
 
 class Hero : public Entity {
 public:
-    Hero(Entity e): Entity(e) {}
-
-    void move(const Point & p) const {
-        cout << "MOVE " << p.x << " " << p.y << endl;
+    Hero(Entity e): Entity(e), m_cmd("")
+    {
     }
 
-    void wait() const {
-        cout << "WAIT Ndorē" << endl;
+    void move(const Point & p) {
+        m_cmd.str("");
+        m_cmd << "MOVE " << p.x << " " << p.y;
     }
 
-    void wind(const Point & toward) const {
-        cout << "SPELL WIND " << toward.x << " " << toward.y
+    void wait() {
+        m_cmd.str("");
+        m_cmd << "WAIT Ndorē";
+    }
+
+    void wind(const Point & toward) {
+        m_cmd.str("");
+        m_cmd << "SPELL WIND " << toward.x << " " << toward.y
              << " Súrë" << endl;
     }
 
-    void protect(int id) const {
-        cout << "SPELL SHIELD " << id
+    void protect(int id) {
+        m_cmd.str("");
+        m_cmd << "SPELL SHIELD " << id
              << " May force be with you" << endl;
     }
 
@@ -205,7 +212,18 @@ public:
         return ans;
     }
 
+    bool orderReceived() const { return !m_cmd.str().empty(); }
+
+    void confirmOrder() {
+        if (!orderReceived()) {
+            wait();
+        }
+        auto cmd = m_cmd.str();
+        cout << cmd << endl;
+    }
+
 private:
+    std::stringstream m_cmd;
 };
 
 class Brain {
@@ -260,8 +278,9 @@ public:
 
     void play() {
         ++m_turns;
+        idle();
         //strategy_full_defence();
-        strategy_one_attacker();
+        //strategy_one_attacker();
     }
 
     // for debug purpose
@@ -324,14 +343,19 @@ private:
     }
 
     void idle() {
+        // cmd phase
         for (int i = 0; i < kHerosPerPlayer; i++) {
             m_heros[i].wait();
+        }
+        // end phase
+        for (auto & h : m_heros) {
+            h.confirmOrder();
         }
     }
 
     void strategy_full_defence() {
         for (int i = 0; i < kHerosPerPlayer; i++) {
-            const auto & hero = m_heros[i];
+            auto & hero = m_heros[i];
             if (i == 2) {
                 if (m_enemies.size() != 0) {
                     const auto & monster = m_enemies[0];
@@ -366,7 +390,7 @@ private:
     void strategy_one_attacker() {
         static bool attackerIsReady = false;
         for (int i = 0; i < kHerosPerPlayer; i++) {
-            const auto & hero = m_heros[i];
+            auto & hero = m_heros[i];
             // attacker
             if (i == 2) {
                 // init

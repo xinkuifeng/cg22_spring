@@ -10,6 +10,8 @@ using namespace std;
 /*****************************************************************************
  * Constants
  ****************************************************************************/
+const double pi = std::acos(-1);
+
 const int kWidth = 17630;
 const int kHeight = 9000;
 const int kRadiusOfBase = 5000;
@@ -19,6 +21,24 @@ const int kRadiusOfWind = 1280;
 const int kHerosPerPlayer = 3;
 const int kHeroPhysicAttackRange = 800;
 const int kHeroViewRange = 2200;
+const int kMagicManaCost = 10;
+
+/*****************************************************************************
+ * Forward declarations
+ ****************************************************************************/
+struct Point;
+struct RadianPoint;
+struct Base;
+class Entity;
+class Monster;
+class Hero;
+class Brain;
+
+vector<Monster> discover_in_range(const vector<Monster> & monsters, Point pos, int range);
+vector<int> discover_in_range(const vector<Hero> & heros, Point pos, int range);
+double convert_degree_to_radian(int degree);
+Point convert_radian_to_cartesian(const RadianPoint & rp);
+
 
 /*****************************************************************************
  * Types
@@ -69,6 +89,35 @@ Point operator-(const Point & p1, const Point & p2) {
 std::ostream & operator<<(std::ostream & os, const Point & p) {
     p.display(os);
     return os;
+}
+
+struct RadianPoint {
+    Point orig;
+    int radius;
+    int angle;
+
+    RadianPoint(Point o, int r, int deg) : orig(o), radius(r), angle(deg) {}
+
+    void display(std::ostream & os) const {
+        os << "orig=" << orig << "; r=" << radius << " ; deg=" << angle;
+    }
+};
+
+std::ostream & operator<<(std::ostream & os, const RadianPoint & rp) {
+    rp.display(os);
+    return os;
+}
+
+double convert_degree_to_radian(int degree) {
+    return pi * degree / 180;
+}
+
+Point convert_radian_to_cartesian(const RadianPoint & rp) {
+    double theta = convert_degree_to_radian(rp.angle);
+    double delta_x = rp.radius * std::cos(theta);
+    double detta_y = rp.radius * std::sin(theta);
+    Point p = rp.orig + Point(delta_x, detta_y);
+    return p;
 }
 
 struct Base {
@@ -205,6 +254,18 @@ public:
         m_cmd << "MOVE " << p.x << " " << p.y;
     }
 
+    void move(const Point & p, int r, int angle, bool mirrow = false) {
+        if (mirrow) angle += 180;
+
+        RadianPoint rp(p, r, angle);
+        move(convert_radian_to_cartesian(rp));
+    }
+
+    void move(const Base & base, int r, int angle) {
+        bool mirrow = base.pos.x == 0 ? false : true;
+        move(base.pos, r, angle, mirrow);
+    }
+
     void wait() {
         m_cmd.str("");
         m_cmd << "WAIT Ndorē";
@@ -230,6 +291,11 @@ public:
         return discover_in_range(monsters, pos, kHeroViewRange);
     }
 
+    // find the heros in the range
+    vector<int> discover(const vector<Hero> & heros) const {
+        return discover_in_range(heros, pos, kHeroViewRange);
+    }
+
     vector<Monster> estimateWindAttackVictims(const vector<Monster> & monsters) const {
         auto objects = discover_in_range(monsters, pos, kRadiusOfWind);
         vector<Monster> ans;
@@ -251,6 +317,17 @@ public:
 private:
     std::stringstream m_cmd;
 };
+
+// find Hero (its id) in the range
+vector<int> discover_in_range(const vector<Hero> & heros, Point pos, int range) {
+    vector<int> ans;
+    for (const auto & h : heros) {
+        if (distance(h.pos, pos) <= range) {
+            ans.push_back(h.id);
+        }
+    }
+    return ans;
+}
 
 class Brain {
 public:
@@ -313,9 +390,9 @@ public:
         ++m_turns;
 
         // planning phase
-        //idle();
+        idle();
         //strategy_full_defence();
-        strategy_one_attacker();
+        //strategy_one_attacker();
 
         // commit phase
         for (auto & h : m_heros) {
@@ -383,9 +460,13 @@ private:
     }
 
     void idle() {
-        for (int i = 0; i < kHerosPerPlayer; i++) {
-            m_heros[i].wait();
-        }
+        m_heros[0].move(m_ourBase, 6000, 20);
+        m_heros[1].move(m_ourBase, 6000, 45);
+        m_heros[2].move(m_ourBase, 6000, 70);
+        //for (int i = 0; i < kHerosPerPlayer; i++) {
+        //    //m_heros[i].wait();
+        //    m_heros[i].move(m_ourBase, 6000, 30 * (i + 1
+        //}
     }
 
     void strategy_full_defence() {
@@ -489,22 +570,30 @@ private:
 
                 // step5: ending game
                 cerr << "Ending game!" << endl;
-                auto monstersNearBy = hero.discover(m_allies);
+                auto monstersNearBy = hero.discover(m_monsters);
                 sort(monstersNearBy.begin(), monstersNearBy.end(), [&](const auto & a, const auto & b) {
                     return a.eta(m_theirBase) < b.eta(m_theirBase);
                 });
-                for (const auto & m : monstersNearBy) {
-                    if (m.hp >= 20 && m.shield == 0) {
-                        hero.protect(m.id);
-                        break;
+                if (monstersNearBy.empty()) {
+                    hero.move(m_attackerPos);
+                } else {
+                    auto opponentsNearBy = hero.discover(m_opponents);
+                    if (opponentsNearBy.empty() || m_theirBase.mp <= kMagicManaCost) {
+                        auto throwables = hero.estimateWindAttackVictims(m_monsters);
+                        if (throwables.size() != 0 && m_ourBase.mp >= kMagicManaCost) {
+                            hero.wind(m_theirBase.pos);
+                        } else {
+                            // do nothing
+                        }
+                    } else {
+                        for (const auto & m : monstersNearBy) {
+                            if (m.hp >= 20 && m.shield == 0) {
+                                hero.protect(m.id);
+                                break;
+                            }
+                        }
                     }
-                }
-                if (hero.orderReceived()) continue;
-
-                // step6: go crazy and throw objects
-                auto monstersToThrow = hero.estimateWindAttackVictims(m_monsters);
-                if (monstersToThrow.size() != 0) {
-                    hero.wind(m_theirBase.pos);
+                    if (!hero.orderReceived()) hero.move(monstersNearBy.back().pos);
                 }
                 continue;
             }
@@ -512,15 +601,14 @@ private:
             // goal-keeper
             if (i == 0) {
                 auto dist = distance(hero.pos, m_ourBase.pos);
-                if (dist > 3500) {
+                if (dist > 3000) {
                     hero.move(m_guardianPos);
                 } else if (m_enemies.size() != 0) {
-                    const auto & monster = m_enemies[0];
-                    auto l = distance(hero.pos, monster.pos);
-                    if (l <= kRadiusOfWind) {
+                    auto throwables = hero.estimateWindAttackVictims(m_enemies);
+                    if (throwables.size() != 0 && m_ourBase.mp >= kMagicManaCost) {
                         hero.wind(m_theirBase.pos);
                     } else {
-                        hero.move(monster.pos);
+                        hero.move(m_enemies.front().pos);
                     }
                 } else {
                     hero.move(m_guardianPos);

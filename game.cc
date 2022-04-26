@@ -652,6 +652,12 @@ private:
     void protect_allies() {
         auto & hero = m_heros[2];
 
+        auto opponentsNearBy = hero.discover(m_opponents);
+        if (opponentsNearBy.size() != 0) {
+            hero.control(opponentsNearBy.front(), m_ourBase.pos);
+            return;
+        }
+
         auto monstersNearBy = hero.discover(m_monsters);
         if (monstersNearBy.empty()) {
             // switch area
@@ -675,8 +681,9 @@ private:
                 }
             }
             if (!hero.orderReceived()) {
-                cruise_between_angles(hero, m_theirBase, kMidCircle, 15, 75);
-                hero.say("Focus");
+                hero.move(m_theirBase, kInnerCircle, 45);
+                //cruise_between_angles(hero, m_theirBase, kMidCircle, 15, 75);
+                hero.say("Heru");
             }
         }
     }
@@ -685,7 +692,7 @@ private:
         // defenders
         for (int i = 0; i < 2; i++) {
             auto & hero = m_heros[i];
-            if (shouldProtect(hero)) {
+            if (shouldProtect(hero) && m_ourBase.mp >= (i + 1) * kMagicManaCost) {
                 hero.protect(hero.id);
                 continue;
             }

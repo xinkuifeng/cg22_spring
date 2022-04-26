@@ -479,7 +479,7 @@ public:
         ++m_turns;
 
         int maxHp = find_max_hp(m_enemies);
-        if (maxHp >= 24) {
+        if (maxHp >= 20) {
             m_phase = EndingGame;
         } else if (m_ourBase.mp >= 170) {
             m_phase = MiddleGame;

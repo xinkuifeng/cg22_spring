@@ -1,7 +1,5 @@
 #include <algorithm>
 #include <cmath>
-#include <cstdlib>
-#include <ctime>
 #include <iostream>
 #include <sstream>
 #include <string>
@@ -56,7 +54,6 @@ bool is_mid_lane(const Point & ref, const Point & other);
 bool is_up_lane(const Point & ref, const Point & other);
 bool is_lower_area(const Point & ref, const Point & other);
 bool is_upper_area(const Point & ref, const Point & other);
-Point get_random_position(const Point & pos);
 
 /*****************************************************************************
  * Types
@@ -107,14 +104,6 @@ Point operator-(const Point & p1, const Point & p2) {
 std::ostream & operator<<(std::ostream & os, const Point & p) {
     p.display(os);
     return os;
-}
-
-Point get_random_position(const Point & pos)
-{
-    std::srand(std::time(nullptr));
-    int delta_x = -1000 + std::rand() * 2000;
-    int delta_y = -1000 + std::rand() * 2000;
-    return Point(pos.x + delta_x, pos.y +delta_y);
 }
 
 struct RadianPoint {
@@ -220,15 +209,14 @@ public:
     int shield; // Count down until shield spell fades
     int controlled; // Equals 1 when this entity is under a control spell
     int hp; // Remaining health of this monster
-    int vx; // Trajectory of this monster
-    int vy;
+    Point v;
     int target; // 0=monster with no target yet, 1=monster targeting a base
     int threat; // Given this monster's trajectory, is it a threat to 1=your base, 2=your opponent's base, 0=neither
 };
 
 class Monster : public Entity {
 public:
-    Monster(Entity e): Entity(e), v(vx, vy) {}
+    Monster(Entity e): Entity(e) {}
 
     void display(std::ostream & os) const {
         os << "Monster " << id << ": ";
@@ -256,7 +244,6 @@ public:
     }
 
 private:
-    Point v;
 };
 
 std::ostream & operator<<(std::ostream & os, const Monster & m) {
@@ -287,12 +274,7 @@ int find_max_hp(const vector<Monster> & monsters) {
     return ans;
 }
 
-bool is_ending_game(const vector<Monster> & monsters) {
-    int maxHp = find_max_hp(monsters);
-    return maxHp > 24;
-}
-
-// risk of this entity based on the distance
+// eval the risk of this monster based on its eta to the base
 int eval_risk(const Base & ref, const Monster & m) {
     int ans = 0;
     int eta = m.eta(ref);
@@ -358,7 +340,8 @@ public:
 
     void control(int id, const Point & toward) {
         undo();
-        m_cmd << "SPELL CONTROL " << id << " " << toward.x << " " << toward.y << " Help";
+        // elvish: this place
+        m_cmd << "SPELL CONTROL " << id << " " << toward.x << " " << toward.y << " sinomë";
     }
 
     // find the monsters in the range
@@ -415,21 +398,6 @@ public:
     Brain(const Base & ours, const Base & theirs) :
         m_ourBase(ours), m_theirBase(theirs), m_turns(0)
     {
-        //Point delta = Point(565, 565);
-        Point delta = Point(1500, 1500);
-        m_guardianPos = m_ourBase.pos.x == 0 ?
-            m_ourBase.pos + delta : m_ourBase.pos - delta;
-
-        m_midFieldPos = Point(kWidth / 2, kHeight / 2);
-
-        delta = Point(4243, 4243);
-        m_attackerPos = m_ourBase.pos.x == 0 ?
-            m_theirBase.pos - delta : m_theirBase.pos + delta;
-
-        delta = Point(3100, 3100);
-        m_goalAreaPos = m_ourBase.pos.x == 0 ?
-            m_theirBase.pos - delta : m_theirBase.pos + delta;
-
         m_phase = StartingGame;
     }
 
@@ -496,7 +464,6 @@ public:
 
         // planning phase
         //idle();
-        //strategy_full_defence();
         strategy_one_attacker();
 
         // commit phase
@@ -565,45 +532,8 @@ private:
     }
 
     void idle() {
-        //m_heros[0].move(m_ourBase, kOutterCircle, 10);
-        //m_heros[1].move(m_ourBase, kMidCircle, 30);
-        //m_heros[2].move(m_ourBase, kOutterCircle, 75);
         for (int i = 0; i < kHerosPerPlayer; i++) {
             m_heros[i].wait();
-        }
-    }
-
-    void strategy_full_defence() {
-        for (int i = 0; i < kHerosPerPlayer; i++) {
-            auto & hero = m_heros[i];
-            if (i == 2) {
-                if (m_enemies.size() != 0) {
-                    const auto & monster = m_enemies[0];
-                    auto l = distance(hero.pos, monster.pos);
-                    if (l <= kRadiusOfWind) {
-                        hero.wind(m_theirBase.pos);
-                    } else {
-                        hero.move(m_guardianPos);
-                    }
-                } else {
-                    hero.move(m_guardianPos);
-                }
-                continue;
-            }
-
-            auto dist = distance(hero.pos, m_ourBase.pos);
-            if (dist > 6000) {
-                // do not go away
-                hero.move(m_ourBase.pos);
-            } else {
-                if (m_enemies.size() != 0) {
-                    // fully focused
-                    const auto & monster = m_enemies[0];
-                    hero.move(monster.pos);
-                } else {
-                    hero.move(m_guardianPos);
-                }
-            }
         }
     }
 
@@ -639,29 +569,9 @@ private:
         if (monstersNearBy.empty()) {
             cruise_between_angles(hero, m_theirBase, 8500, 30, 60);
             hero.say("Gank");
-            //auto distToMid = distance(hero.pos, m_midFieldPos);
-            //if (distToMid >= 2400) {
-            //    hero.move(m_midFieldPos);
-            //    hero.say("Glories");
-            //} else {
-            //    cruise_between_angles(hero, m_theirBase, 8500, 30, 60);
-            //    hero.say("Gank");
-            //}
         } else {
-            //if (m_ourBase.mp >= 8 * kMagicManaCost) {
-            //    for (auto it = monstersNearBy.rbegin(); it != monstersNearBy.rend(); ++it) {
-            //        if (it->eta(m_ourBase) > 0) {
-            //            hero.control(it->id, hero.pos);
-            //            break;
-            //        }
-            //    }
-            //    if (!hero.orderReceived())
-            //        hero.control(monstersNearBy.back().id, hero.pos);
-            //    hero.say("Let's play");
-            //} else {
-              hero.move(monstersNearBy.front().pos);
-              hero.say("Faralë");
-            //}
+            hero.move(monstersNearBy.front().pos);
+            hero.say("Faralë");
         }
     }
 
@@ -709,7 +619,6 @@ private:
                     if (m.hp >= 20 && m.shield == 0) {
                         if (m.eta(m_theirBase) >= 0) {
                             hero.protect(m.id);
-                            hero.say("May force be with you");
                         } else {
                             hero.control(m.id, m_theirBase.pos);
                         }
@@ -731,24 +640,6 @@ private:
     void strategy_one_attacker() {
         for (int i = 0; i < 2; i++) {
             auto & hero = m_heros[i];
-
-            // goal-keepers
-            // if (m_phase == EndingGame) {
-            //     auto dist = distance(hero.pos, m_ourBase.pos);
-            //     if (dist > 3000) {
-            //         hero.move(m_guardianPos);
-            //     } else if (m_enemies.size() != 0) {
-            //         auto throwables = hero.estimateWindAttackVictims(m_enemies);
-            //         if (throwables.size() != 0 && m_ourBase.mp >= kMagicManaCost) {
-            //             hero.wind(m_theirBase.pos);
-            //         } else {
-            //             hero.move(m_enemies.front().pos);
-            //         }
-            //     } else {
-            //         hero.move(m_guardianPos);
-            //     }
-            //     continue;
-            // }
 
             // defenders
             auto dist = distance(hero.pos, m_ourBase.pos);
@@ -845,11 +736,6 @@ private:
     Base m_ourBase;
     Base m_theirBase;
 
-    Point m_guardianPos;
-    Point m_midFieldPos;
-    Point m_attackerPos;
-    Point m_goalAreaPos;
-
     int m_turns;
     Phase m_phase;
 
@@ -921,8 +807,7 @@ int main()
             e.shield = shield_life;
             e.controlled = is_controlled;
             e.hp = health;
-            e.vx = vx;
-            e.vy = vy;
+            e.v = Point(vx, vy);
             e.target = near_base;
             e.threat = threat_for;
             units.push_back(e);

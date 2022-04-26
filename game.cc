@@ -409,7 +409,7 @@ vector<int> discover_in_range(const vector<Hero> & heros, Point pos, int range) 
 class Brain {
 public:
     Brain(const Base & ours, const Base & theirs) :
-        m_ourBase(ours), m_theirBase(theirs), m_turns(0)
+        m_ourBase(ours), m_theirBase(theirs), m_turns(0), m_madness(0)
     {
         m_phase = StartingGame;
     }
@@ -653,7 +653,7 @@ private:
         auto & hero = m_heros[2];
 
         auto opponentsNearBy = hero.discover(m_opponents);
-        if (opponentsNearBy.size() != 0) {
+        if (opponentsNearBy.size() != 0 && m_ourBase.mp >= 3 * kMagicManaCost) {
             hero.control(opponentsNearBy.front(), m_ourBase.pos);
             return;
         }
@@ -676,7 +676,7 @@ private:
                     }
                 }
                 auto throwables = hero.estimateWindAttackVictims(m_enemies);
-                if (!hero.orderReceived() && throwables.size() != 0) {
+                if (!hero.orderReceived() && canUseWindSpell(hero, m_enemies)) {
                     hero.wind(m_theirBase.pos);
                 }
             }
@@ -692,7 +692,9 @@ private:
         // defenders
         for (int i = 0; i < 2; i++) {
             auto & hero = m_heros[i];
-            if (shouldProtect(hero) && m_ourBase.mp >= (i + 1) * kMagicManaCost) {
+            if (hero.mad) ++m_madness;
+
+            if (shouldProtect(hero) && m_ourBase.mp >= ((i + 1) * kMagicManaCost)) {
                 hero.protect(hero.id);
                 continue;
             }
@@ -789,7 +791,7 @@ private:
     }
 
     bool shouldProtect(const Hero & hero) const {
-        if (m_phase == EndingGame && hero.shield == 0) {
+        if (m_phase == EndingGame && hero.shield == 0 && m_madness > 1) {
             return true;
         } else {
             return false;
@@ -800,6 +802,7 @@ private:
     Base m_theirBase;
 
     int m_turns;
+    int m_madness;
     Phase m_phase;
 
     unordered_map<int, Entity> m_world;

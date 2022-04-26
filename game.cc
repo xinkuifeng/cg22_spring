@@ -455,13 +455,6 @@ public:
             // do nothing
         }
 
-        switch (m_phase) {
-            case StartingGame: cerr << "=== stage: Starting ===" << endl; break;
-            case MiddleGame: cerr << "=== stage: Middle ===" << endl; break;
-            case EndingGame: cerr << "=== stage: EndingGame ===" << endl; break;
-            default: break;
-        }
-
         // planning phase
         //idle();
         strategy_one_attacker();
@@ -473,9 +466,34 @@ public:
     }
 
     // for debug purpose
+    void showGameInfo() {
+        showStage();
+        showBases();
+        showMonsters();
+    }
+
+private:
     void showBases() {
         cerr << "our base: " << m_ourBase << endl;
         cerr << "their base: " << m_theirBase << endl;
+    }
+
+    void showStage() {
+        switch (m_phase) {
+            case StartingGame:
+                cerr << "=== stage: Starting (" << m_turns << ") ===" << endl;
+                break;
+            case MiddleGame:
+                cerr << "=== stage: Middle (" << m_turns << ") ===" << endl;
+                break;
+            case EndingGame:
+                cerr << "=== stage: EndingGame (" << m_turns << ") ===" << endl;
+                break;
+
+            default:
+                cerr << "=== stage: Unknown (" << m_turns << ") ===" << endl;
+                break;
+        }
     }
 
     void showMonsters() {
@@ -499,7 +517,6 @@ public:
         }
     }
 
-private:
     void classification(const vector<Monster> & monsters) {
         vector<Monster> enemies;
         vector<Monster> allies;
@@ -782,7 +799,6 @@ int main()
                 brain.updateTheirBase(health, mana);
             }
         }
-        brain.showBases();
         int entity_count; // Amount of heros and monsters you can see
         cin >> entity_count; cin.ignore();
         vector<Entity> units;
@@ -813,7 +829,7 @@ int main()
             units.push_back(e);
         }
         brain.parse(units);
-        brain.showMonsters();
+        brain.showGameInfo();
         brain.play();
     }
 }

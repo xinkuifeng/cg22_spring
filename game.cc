@@ -3,6 +3,7 @@
 #include <iostream>
 #include <sstream>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 using namespace std;
@@ -207,7 +208,7 @@ public:
     int type; // 0=monster, 1=your hero, 2=opponent hero
     Point pos;
     int shield; // Count down until shield spell fades
-    int controlled; // Equals 1 when this entity is under a control spell
+    bool mad; // Equals 1 when this entity is under a control spell
     int hp; // Remaining health of this monster
     Point v;
     int target; // 0=monster with no target yet, 1=monster targeting a base
@@ -372,6 +373,13 @@ public:
         cout << m_cmd.str() << endl;
     }
 
+    void display(std::ostream & os) const {
+        os << "Hero " << id << ": ";
+        os << "pos=" << pos;
+        os << "; shield=" << shield;
+        os << "; mad=" << mad;
+    }
+
 private:
     void undo() {
         m_cmd.str("");
@@ -381,6 +389,11 @@ private:
     std::stringstream m_cmd;
     bool m_spellingWind;
 };
+
+std::ostream& operator<<(std::ostream & os, const Hero & hero) {
+    hero.display(os);
+    return os;
+}
 
 // find Hero (its id) in the range
 vector<int> discover_in_range(const vector<Hero> & heros, Point pos, int range) {
@@ -420,6 +433,8 @@ public:
         vector<Hero> opponents;
 
         for (const auto & e : units) {
+            // index the world
+            m_world[e.id] = e;
             switch (e.type) {
                 case 0:
                     monsters.push_back(e);
@@ -466,19 +481,20 @@ public:
     }
 
     // for debug purpose
-    void showGameInfo() {
+    void showGameInfo() const {
         showStage();
         showBases();
+        showHeros();
         showMonsters();
     }
 
 private:
-    void showBases() {
+    void showBases() const {
         cerr << "our base: " << m_ourBase << endl;
         cerr << "their base: " << m_theirBase << endl;
     }
 
-    void showStage() {
+    void showStage() const {
         switch (m_phase) {
             case StartingGame:
                 cerr << "=== stage: Starting (" << m_turns << ") ===" << endl;
@@ -496,7 +512,7 @@ private:
         }
     }
 
-    void showMonsters() {
+    void showMonsters() const {
         // highest risk to our base
         cerr << "=== our enemies (" << m_enemies.size() << ") ===" << endl;
         for (int i = 0; i < kHerosPerPlayer && i < m_enemies.size(); ++i) {
@@ -514,6 +530,17 @@ private:
         for (int i = 0; i < kHerosPerPlayer && i < m_allies.size(); ++i) {
             const auto & m = m_allies[i];
             cerr << m << "; ETA=" << m.eta(m_theirBase) << endl;
+        }
+    }
+
+    void showHeros() const {
+        cerr << "=== our heros (" << m_heros.size() << ") ===" << endl;
+        for (const auto & hero : m_heros) {
+            cerr << hero << endl;
+        }
+        cerr << "=== their heros (" << m_opponents.size() << ") ===" << endl;
+        for (const auto & hero : m_opponents) {
+            cerr << hero << endl;
         }
     }
 
@@ -756,6 +783,8 @@ private:
     int m_turns;
     Phase m_phase;
 
+    unordered_map<int, Entity> m_world;
+
     vector<Hero> m_heros;
     vector<Monster> m_monsters;
     vector<Hero> m_opponents;
@@ -821,7 +850,7 @@ int main()
             e.type = type;
             e.pos = Point(x, y);
             e.shield = shield_life;
-            e.controlled = is_controlled;
+            e.mad = is_controlled ? true : false;
             e.hp = health;
             e.v = Point(vx, vy);
             e.target = near_base;

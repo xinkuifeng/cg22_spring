@@ -682,10 +682,14 @@ private:
     }
 
     void strategy_one_attacker() {
+        // defenders
         for (int i = 0; i < 2; i++) {
             auto & hero = m_heros[i];
+            if (shouldProtect(hero)) {
+                hero.protect(hero.id);
+                continue;
+            }
 
-            // defenders
             auto dist = distance(hero.pos, m_ourBase.pos);
             int radiusOfDefence;
             switch (m_phase) {
@@ -762,7 +766,7 @@ private:
         command_the_attacker();
     }
 
-    bool canUseWindSpell(const Hero & hero, const Monster & monster) {
+    bool canUseWindSpell(const Hero & hero, const Monster & monster) const {
         auto dist = distance(hero.pos, monster.pos);
         if (dist <= kRadiusOfWind && m_ourBase.mp >= kMagicManaCost && monster.shield == 0) {
             return true;
@@ -770,11 +774,19 @@ private:
         return false;
     }
 
-    bool canUseWindSpell(const Hero & hero, const vector<Monster> & monsters) {
+    bool canUseWindSpell(const Hero & hero, const vector<Monster> & monsters) const {
         for (const auto & m : monsters) {
             if (canUseWindSpell(hero, m)) return true;
         }
         return false;
+    }
+
+    bool shouldProtect(const Hero & hero) const {
+        if (m_phase == EndingGame && hero.shield == 0) {
+            return true;
+        } else {
+            return false;
+        }
     }
 
     Base m_ourBase;

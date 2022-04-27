@@ -467,7 +467,7 @@ public:
         int maxHp = find_max_hp(m_enemies);
         if (maxHp >= 24) {
             m_phase = EndingGame;
-        } else if (m_ourBase.mp >= 170) {
+        } else if (maxHp >= 17) {
             m_phase = MiddleGame;
         } else {
             // do nothing
@@ -625,6 +625,7 @@ private:
     void summon_allies() {
         auto & hero = m_heros[2];
 
+        auto dist = distance(hero.pos, m_theirBase.pos);
         auto monstersNearBy = hero.discover(m_monsters);
         if (monstersNearBy.empty()) {
             // switch area
@@ -632,6 +633,27 @@ private:
             hero.say("Attack");
         } else {
             if (m_ourBase.mp >= 4 * kMagicManaCost) {
+                // when I'm far from their base
+                if (dist >= kOutterCircle) {
+                    // the most important thing
+                    for (const auto & m : monstersNearBy) {
+                        if (m.eta(m_theirBase) < 0 && m.shield == 0 && m.hp >= 18) {
+                            hero.control(m.id, m_theirBase.pos);
+                            return;
+                        }
+                    }
+                    auto throwables = hero.estimateWindAttackVictims(monstersNearBy);
+                    if (shouldUseWindSpell(hero, monstersNearBy) && throwables.size() > 2) {
+                        hero.wind(m_theirBase.pos);
+                        return;
+                    }
+                }
+                auto throwables = hero.estimateWindAttackVictims(monstersNearBy);
+                // when I'm near enough
+                if (shouldUseWindSpell(hero, monstersNearBy)) {
+                    hero.wind(m_theirBase.pos);
+                    return;
+                }
                 // sort from the highest risk to the lowest
                 sort(monstersNearBy.begin(), monstersNearBy.end(), [&](const auto & a, const auto & b) {
                     return eval_risk(m_theirBase, a) > eval_risk(m_theirBase, b);
@@ -642,11 +664,7 @@ private:
                         return;
                     }
                 }
-                auto throwables = hero.estimateWindAttackVictims(monstersNearBy);
-                if (throwables.size() > 3) {
-                    hero.wind(m_theirBase.pos);
-                    return;
-                }
+                // pull the monster back
                 for (const auto & m : monstersNearBy) {
                     if (m.eta(m_theirBase) < 0 && m.shield == 0) {
                         hero.control(m.id, m_theirBase.pos);
@@ -830,6 +848,23 @@ private:
         } else {
             return false;
         }
+    }
+
+    bool shouldUseWindSpell(const Hero & hero, const Monster & monster) const {
+        auto dist = distance(hero.pos, monster.pos);
+        if (  dist <= kRadiusOfWind
+           && monster.shield == 0
+           && monster.hp >= 17) {
+            return true;
+        }
+        return false;
+    }
+
+    bool shouldUseWindSpell(const Hero & hero, const vector<Monster> & monsters) const {
+        for (const auto & m : monsters) {
+            if (shouldUseWindSpell(hero, m)) return true;
+        }
+        return false;
     }
 
     bool shouldUseShieldSpell(const Hero & hero, const Monster & monster) const {

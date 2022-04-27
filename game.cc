@@ -629,15 +629,25 @@ private:
             hero.say("Attack");
         } else {
             if (m_ourBase.mp >= 4 * kMagicManaCost) {
+                // sort from the highest risk to the lowest 
+                sort(monstersNearBy.begin(), monstersNearBy.end(), [&](const auto & a, const auto & b) {
+                    return eval_risk(m_theirBase, a) > eval_risk(m_theirBase, b);
+                });
+                for (const auto & m : monstersNearBy) {
+                    if (shouldUseShieldSpell(hero, m)) {
+                        hero.protect(m.id);
+                        return;
+                    }
+                }
                 auto throwables = hero.estimateWindAttackVictims(monstersNearBy);
                 if (throwables.size() > 3) {
                     hero.wind(m_theirBase.pos);
                     return;
                 }
                 for (const auto & m : monstersNearBy) {
-                    if (m.eta(m_theirBase) < 0) {
+                    if (m.eta(m_theirBase) < 0 && m.shield == 0) {
                         hero.control(m.id, m_theirBase.pos);
-                        break;
+                        return;
                     }
                 }
             }
@@ -665,17 +675,24 @@ private:
             hero.say("Focus");
         } else {
             if (m_ourBase.mp >= 3 * kMagicManaCost) {
+                // sort from the highest risk to the lowest 
+                sort(monstersNearBy.begin(), monstersNearBy.end(), [&](const auto & a, const auto & b) {
+                    return eval_risk(m_theirBase, a) > eval_risk(m_theirBase, b);
+                });
                 for (const auto & m : monstersNearBy) {
-                    if (m.hp >= 20 && m.shield == 0) {
-                        if (m.eta(m_theirBase) >= 0) {
-                            hero.protect(m.id);
-                        } else {
-                            hero.control(m.id, m_theirBase.pos);
-                        }
+                    if (shouldUseShieldSpell(hero, m)) {
+                        hero.protect(m.id);
                         break;
                     }
                 }
-                auto throwables = hero.estimateWindAttackVictims(m_enemies);
+                if (!hero.orderReceived()) {
+                    for (const auto & m : monstersNearBy) {
+                        if (m.eta(m_theirBase) < 0 && m.hp >= 20 && m.shield == 0) {
+                            hero.control(m.id, m_theirBase.pos);
+                            break;
+                        }
+                    }
+                }
                 if (!hero.orderReceived() && canUseWindSpell(hero, m_enemies)) {
                     hero.wind(m_theirBase.pos);
                 }
@@ -797,6 +814,19 @@ private:
         } else {
             return false;
         }
+    }
+
+    bool shouldUseShieldSpell(const Hero & hero, const Monster & monster) const {
+        auto dist = distance(hero.pos, monster.pos);
+        auto eta = monster.eta(m_theirBase);
+        if (  dist <= kHeroViewRange
+           && monster.shield == 0
+           && eta >= 0
+           && eta <= 14
+           && monster.hp >= 18) {
+            return true;
+        }
+        return false;
     }
 
     Base m_ourBase;

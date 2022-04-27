@@ -462,7 +462,7 @@ public:
         ++m_turns;
 
         int maxHp = find_max_hp(m_enemies);
-        if (maxHp >= 20) {
+        if (maxHp >= 24) {
             m_phase = EndingGame;
         } else if (m_ourBase.mp >= 170) {
             m_phase = MiddleGame;
@@ -652,11 +652,11 @@ private:
     void protect_allies() {
         auto & hero = m_heros[2];
 
-        auto opponentsNearBy = hero.discover(m_opponents);
-        if (opponentsNearBy.size() != 0 && m_ourBase.mp >= 3 * kMagicManaCost) {
-            hero.control(opponentsNearBy.front(), m_ourBase.pos);
-            return;
-        }
+        //auto opponentsNearBy = hero.discover(m_opponents);
+        //if (opponentsNearBy.size() != 0 && m_ourBase.mp >= 3 * kMagicManaCost) {
+        //    hero.control(opponentsNearBy.front(), m_ourBase.pos);
+        //    return;
+        //}
 
         auto monstersNearBy = hero.discover(m_monsters);
         if (monstersNearBy.empty()) {
@@ -681,8 +681,8 @@ private:
                 }
             }
             if (!hero.orderReceived()) {
-                hero.move(m_theirBase, kInnerCircle, 45);
-                //cruise_between_angles(hero, m_theirBase, kMidCircle, 15, 75);
+                //hero.move(m_theirBase, kInnerCircle, 45);
+                cruise_between_angles(hero, m_theirBase, kMidCircle, 15, 75);
                 hero.say("Heru");
             }
         }
@@ -791,7 +791,8 @@ private:
     }
 
     bool shouldProtect(const Hero & hero) const {
-        if (m_phase == EndingGame && hero.shield == 0 && m_madness > 1) {
+        int maxHp = find_max_hp(m_monsters);
+        if (maxHp >= 20 && hero.shield == 0 && m_madness > 1) {
             return true;
         } else {
             return false;

@@ -22,7 +22,7 @@ const int kWidth = 17630;
 const int kHeight = 9000;
 const int kRadiusOfBase = 5000;
 const int kInnerCircle = 2800;
-const int kMidCircle = 6000;
+const int kMidCircle = 6000; // at the outskirt of the base
 const int kOutterCircle = 7000;
 const int kMonsterSpeed = 400;
 const int kHeroSpeed = 800;
@@ -30,6 +30,7 @@ const int kRadiusOfWind = 1280;
 const int kHerosPerPlayer = 3;
 const int kHeroPhysicAttackRange = 800;
 const int kHeroViewRange = 2200;
+const int kBaseViewRange = 6000;
 const int kMagicManaCost = 10;
 const int kHeroPhysicAttackDmg = 2;
 
@@ -52,7 +53,7 @@ Point convert_radian_to_cartesian(const RadianPoint & rp);
 int calc_degree_between(const Point & ref, const Point & other);
 bool is_bottom_lane(const Point & ref, const Point & other);
 bool is_mid_lane(const Point & ref, const Point & other);
-bool is_up_lane(const Point & ref, const Point & other);
+bool is_top_lane(const Point & ref, const Point & other);
 bool is_lower_area(const Point & ref, const Point & other);
 bool is_upper_area(const Point & ref, const Point & other);
 
@@ -144,7 +145,7 @@ bool is_mid_lane(const Point & ref, const Point & other) {
     return false;
 }
 
-bool is_up_lane(const Point & ref, const Point & other) {
+bool is_top_lane(const Point & ref, const Point & other) {
     int degree = calc_degree_between(ref, other);
     if (degree >= k60Degree) return true;
     return false;
@@ -412,6 +413,8 @@ public:
         m_ourBase(ours), m_theirBase(theirs), m_turns(0), m_madness(0)
     {
         m_phase = StartingGame;
+        // the blue team
+        m_blue = m_ourBase.pos.x == 0 ? true : false;
     }
 
     void updateOurBase(int hp, int mp) {
@@ -629,7 +632,7 @@ private:
             hero.say("Attack");
         } else {
             if (m_ourBase.mp >= 4 * kMagicManaCost) {
-                // sort from the highest risk to the lowest 
+                // sort from the highest risk to the lowest
                 sort(monstersNearBy.begin(), monstersNearBy.end(), [&](const auto & a, const auto & b) {
                     return eval_risk(m_theirBase, a) > eval_risk(m_theirBase, b);
                 });
@@ -675,7 +678,7 @@ private:
             hero.say("Focus");
         } else {
             if (m_ourBase.mp >= 3 * kMagicManaCost) {
-                // sort from the highest risk to the lowest 
+                // sort from the highest risk to the lowest
                 sort(monstersNearBy.begin(), monstersNearBy.end(), [&](const auto & a, const auto & b) {
                     return eval_risk(m_theirBase, a) > eval_risk(m_theirBase, b);
                 });
@@ -706,6 +709,20 @@ private:
     }
 
     void strategy_one_attacker() {
+        static Point windNorth(0, kRadiusOfWind);
+        static Point windSouth(0, -kRadiusOfWind);
+        static Point windEast(kRadiusOfWind, 0);
+        static Point windWest(-kRadiusOfWind, 0);
+
+        auto opponentsNearOurBase = discover_in_range(m_opponents, m_ourBase.pos, kBaseViewRange + kHeroViewRange);
+        // sort by the distance to my base (nearest to farest)
+        sort(opponentsNearOurBase.begin(), opponentsNearOurBase.end(), [&](int id1, int id2) {
+            auto pos1 = m_world[id1].pos;
+            auto pos2 = m_world[id2].pos;
+            return distance(pos1, m_ourBase.pos) < distance(pos2, m_ourBase.pos);
+        });
+        auto monstersInOurBase = discover_in_range(m_monsters, m_ourBase.pos, kBaseViewRange);
+
         // defenders
         for (int i = 0; i < 2; i++) {
             auto & hero = m_heros[i];
@@ -751,9 +768,8 @@ private:
                 if (distBaseMonster <= kRadiusOfBase) {
                     if (  canUseWindSpell(hero, m_enemies.front())
                        && !m_heros[0].isWinding()) {
-                        auto opponentsNearBy = hero.discover(m_opponents);
                         auto & monster = m_enemies.front();
-                        if (  opponentsNearBy.size() != 0
+                        if (  opponentsNearOurBase.size() != 0
                            || monster.eta(m_ourBase) < monster.hp / kHeroPhysicAttackDmg) {
                             hero.wind(m_theirBase.pos);
                         }
@@ -835,6 +851,7 @@ private:
     int m_turns;
     int m_madness;
     Phase m_phase;
+    bool m_blue;
 
     unordered_map<int, Entity> m_world;
 

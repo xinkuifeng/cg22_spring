@@ -488,6 +488,20 @@ int find_nearest_hero(const Monster & monster, const vector<Hero> & heros) {
     return ans;
 }
 
+// produce the index of this defender 
+int find_nearest_defender(const Monster & monster, const vector<Hero> & heros) {
+    int ans;
+    int min_dist = kVeryBigDistance;
+    for (int i = 0; i < kNumberOfDefenders; ++i) {
+        auto & hero = heros[i];
+        int dist = distance(hero.pos, monster.pos);
+        if (dist < min_dist) {
+            min_dist = dist;
+            ans = i;
+        }
+    }
+    return ans;
+}
 
 class Brain {
 public:
@@ -871,11 +885,11 @@ private:
             if (m_heros[i].mad)
                 ++m_madness;
         }
-        for (int i = 0; i < kNumberOfDefenders; ++i) {
-            auto & hero = m_heros[i];
-            if (shouldSelfProtect(hero) && m_ourBase.mp >= ((i + 1) * kMagicManaCost)) {
+        for (int idx = 0; idx < kNumberOfDefenders; ++idx) {
+            auto & hero = m_heros[idx];
+            if (shouldSelfProtect(hero) && m_ourBase.mp >= ((idx + 1) * kMagicManaCost)) {
                 Action a;
-                a.subject = i;
+                a.subject = idx;
                 a.verb = PROTECT;
                 a.object = hero.id;
                 m_queue.push(a);
@@ -900,7 +914,7 @@ private:
             auto & hero = m_heros[i];
             auto dist = distance(hero.pos, m_ourBase.pos);
             // stage2: do not go too far
-            if (dist > radiusOfDefence + 2000) {
+            if (dist > radiusOfDefence + 1800) {
                 // back to the position
                 Action a;
                 a.subject = i;
@@ -948,7 +962,7 @@ private:
             //cerr << "FXK says, stage3 done: queue_size=" << m_queue.size() << endl;
             if (m_queue.size() >= kNumberOfDefenders) return;
         }
-        if (m_queue.size() >= 2) return;
+        if (m_queue.size() >= kNumberOfDefenders) return;
 
         // stage4: focus on enemies in our base first
         auto opponentsNearOurBase =
@@ -959,7 +973,7 @@ private:
             auto pos2 = m_world[id2].pos;
             return distance(pos1, m_ourBase.pos) < distance(pos2, m_ourBase.pos);
         });
-        auto monstersInOurBase = discover_in_range(m_monsters, m_ourBase.pos, kBaseViewRange);
+        auto monstersInOurBase = discover_in_range(m_monsters, m_ourBase.pos, kRadiusOfBase);
         // sort by risk (highest to lowest)
         sort(monstersInOurBase.begin(), monstersInOurBase.end(), [&](const auto & a, const auto & b) {
             return eval_risk(m_ourBase, a) > eval_risk(m_ourBase, b);
@@ -973,7 +987,7 @@ private:
                 continue;
             }
 
-            int idx = find_nearest_hero(monster, m_heros);
+            int idx = find_nearest_defender(monster, m_heros);
             // this hero is not available
             if (m_heros[idx].orderReceived()) {
                 // must handle the first monster
@@ -1258,7 +1272,7 @@ int main()
             units.push_back(e);
         }
         brain.parse(units);
-        //brain.showGameInfo();
+        brain.showGameInfo();
         brain.play();
     }
 }

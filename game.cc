@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <cmath>
 #include <iostream>
+#include <queue>
 #include <sstream>
 #include <string>
 #include <unordered_map>
@@ -33,6 +34,8 @@ const int kHeroViewRange = 2200;
 const int kBaseViewRange = 6000;
 const int kMagicManaCost = 10;
 const int kHeroPhysicAttackDmg = 2;
+const int kNumberOfDefenders = 2;
+const int kVeryBigDistance = 40000;
 
 /*****************************************************************************
  * Forward declarations
@@ -44,6 +47,7 @@ class Entity;
 class Monster;
 class Hero;
 class Brain;
+struct Action;
 
 vector<Monster> discover_in_range(const vector<Monster> & monsters, Point pos, int range);
 vector<int> discover_in_range(const vector<Hero> & heros, Point pos, int range);
@@ -56,6 +60,7 @@ bool is_mid_lane(const Point & ref, const Point & other);
 bool is_top_lane(const Point & ref, const Point & other);
 bool is_lower_area(const Point & ref, const Point & other);
 bool is_upper_area(const Point & ref, const Point & other);
+Point compute_cartesian_point(const Base & base, int r, int angle);
 
 /*****************************************************************************
  * Types
@@ -107,6 +112,24 @@ std::ostream & operator<<(std::ostream & os, const Point & p) {
     p.display(os);
     return os;
 }
+
+enum Command {
+    WAIT,
+    MOVE,
+    WIND,
+    PROTECT,
+    CONTROL,
+};
+
+struct Action {
+    int subject; // index of the subject
+    Command verb;
+    int object; // id of the object
+    Point dest; // destination
+    string msg;
+
+    Action() : subject(0), verb(WAIT), object(0), dest(), msg() {}
+};
 
 struct RadianPoint {
     Point orig;
@@ -261,10 +284,6 @@ vector<Monster> discover_in_range(const vector<Monster> & monsters, Point pos, i
             ans.push_back(m);
         }
     }
-    // sort from the nearest to the farest
-    sort(ans.begin(), ans.end(), [&](const auto & a, const auto & b) {
-        return distance(a.pos, pos) < distance(b.pos, pos);
-    });
     return ans;
 }
 
@@ -293,6 +312,14 @@ int eval_risk(const Base & ref, const Monster & m) {
         ans = 70 - eta;
     }
     return ans > 0 ? ans : 0;
+}
+
+Point compute_cartesian_point(const Base & base, int r, int angle) {
+    bool mirrow = base.pos.x == 0 ? false : true;
+
+    if (mirrow) angle += 180;
+    RadianPoint rp(base.pos, r, angle);
+    return convert_radian_to_cartesian(rp);
 }
 
 class Hero : public Entity {
@@ -407,10 +434,26 @@ vector<int> discover_in_range(const vector<Hero> & heros, Point pos, int range) 
     return ans;
 }
 
+// produce the index of this hero
+int find_nearest_hero(const Monster & monster, const vector<Hero> & heros) {
+    int ans;
+    int min_dist = kVeryBigDistance;
+    for (int i = 0; i < heros.size(); ++i) {
+        auto & hero = heros[i];
+        int dist = distance(hero.pos, monster.pos);
+        if (dist < min_dist) {
+            min_dist = dist;
+            ans = i;
+        }
+    }
+    return ans;
+}
+
+
 class Brain {
 public:
     Brain(const Base & ours, const Base & theirs) :
-        m_ourBase(ours), m_theirBase(theirs), m_turns(0), m_madness(0)
+        m_ourBase(ours), m_theirBase(theirs), m_turns(0), m_madness(0), m_queue()
     {
         m_phase = StartingGame;
         // the blue team
@@ -478,9 +521,55 @@ public:
         strategy_one_attacker();
 
         // commit phase
+        commit_my_commands();
+    }
+
+    void commit_my_commands() {
+        if (m_queue.size() > 2) {
+            cerr << "Warning: more than 2 commands for the defenders." << endl;
+        }
+
+        vector<bool> seen = { false, false };
+        while (!m_queue.empty()) {
+            auto a = m_queue.front();
+            m_queue.pop();
+            int idx = a.subject;
+            if (seen[idx]) {
+                cerr << "Warning: discard one command for Hero " << m_heros[idx].id << endl;
+                continue;
+            } else {
+                seen[idx] = true;
+            }
+
+            auto & hero = m_heros[idx];
+            switch (a.verb) {
+                case MOVE:
+                    hero.move(a.dest);
+                    break;
+
+                case WIND:
+                    hero.wind(a.dest);
+                    break;
+
+                case PROTECT:
+                    hero.protect(a.object);
+                    break;
+
+                case CONTROL:
+                    hero.control(a.object, a.dest);
+                    break;
+
+                case WAIT:
+                default:
+                    hero.wait();
+                    break;
+            }
+        }
+
         for (auto & h : m_heros) {
             h.confirmOrder();
         }
+
     }
 
     // for debug purpose
@@ -726,13 +815,88 @@ private:
         }
     }
 
-    void strategy_one_attacker() {
-        static Point windNorth(0, kRadiusOfWind);
-        static Point windSouth(0, -kRadiusOfWind);
-        static Point windEast(kRadiusOfWind, 0);
-        static Point windWest(-kRadiusOfWind, 0);
+    void command_the_defenders() {
+        // stage1: use shield to protect ourselves
+        for (int i = 0; i < kNumberOfDefenders; ++i) {
+            if (m_heros[i].mad)
+                ++m_madness;
+        }
+        for (int i = 0; kNumberOfDefenders; ++i) {
+            auto & hero = m_heros[i];
+            if (shouldSelfProtect(hero) && m_ourBase.mp >= ((i + 1) * kMagicManaCost)) {
+                Action a;
+                a.subject = i;
+                a.verb = PROTECT;
+                a.object = hero.id;
+                m_queue.push(a);
+                // dummy thing; placeholder
+                hero.wait();
+            }
+        }
+        if (m_queue.size() >= kNumberOfDefenders) return;
 
-        auto opponentsNearOurBase = discover_in_range(m_opponents, m_ourBase.pos, kBaseViewRange + kHeroViewRange);
+        int radiusOfDefence;
+        switch (m_phase) {
+            case StartingGame:
+                radiusOfDefence = kOutterCircle; break;
+            case MiddleGame:
+            case EndingGame:
+                radiusOfDefence = kMidCircle; break;
+            default: throw("unknow phase");
+        }
+        // per hero
+        for (int i = 0; kNumberOfDefenders; ++i) {
+            auto & hero = m_heros[i];
+            auto dist = distance(hero.pos, m_ourBase.pos);
+            // stage2: do not go too far
+            if (dist > radiusOfDefence + 2000) {
+                // back to the position
+                hero.move(m_ourBase, radiusOfDefence, i * 60 + 15);
+                Action a;
+                a.subject = i;
+                a.verb = MOVE;
+                a.dest = compute_cartesian_point(m_ourBase, radiusOfDefence, i * 60 + 15);
+                a.msg = "Back";
+                m_queue.push(a);
+                // dummy thing; placeholder
+                hero.wait();
+            }
+            if (m_queue.size() >= kNumberOfDefenders) return;
+
+            // stage3: no enemies at all
+            if (m_enemies.empty()) {
+                auto monstersNearBy = hero.discover(m_monsters);
+                // sort from the nearest to the farest
+                sort(monstersNearBy.begin(), monstersNearBy.end(), [&](const auto & a, const auto & b) {
+                    return distance(a.pos, hero.pos) < distance(b.pos, hero.pos);
+                });
+                Action a;
+                a.subject = i;
+                a.verb = MOVE;
+                if (monstersNearBy.size() != 0) {
+                    // farm
+                    a.dest = monstersNearBy.front().pos;
+                    a.msg = "Faralë";
+                } else {
+                    // go to the defence post
+                    if (m_phase == EndingGame) {
+                        a.dest = compute_cartesian_point(m_ourBase, radiusOfDefence, i * 30 + 15);
+                    } else {
+                        a.dest = compute_cartesian_point(m_ourBase, radiusOfDefence, i * 60 + 15);
+                    }
+                    a.msg = "Glories";
+                }
+                m_queue.push(a);
+                // dummy thing; placeholder
+                hero.wait();
+            }
+            if (m_queue.size() >= kNumberOfDefenders) return;
+        }
+        if (m_queue.size() >= 2) return;
+
+        // stage4: focus on enemies in our base first
+        auto opponentsNearOurBase =
+            discover_in_range(m_opponents, m_ourBase.pos, kBaseViewRange + kHeroViewRange);
         // sort by the distance to my base (nearest to farest)
         sort(opponentsNearOurBase.begin(), opponentsNearOurBase.end(), [&](int id1, int id2) {
             auto pos1 = m_world[id1].pos;
@@ -740,90 +904,146 @@ private:
             return distance(pos1, m_ourBase.pos) < distance(pos2, m_ourBase.pos);
         });
         auto monstersInOurBase = discover_in_range(m_monsters, m_ourBase.pos, kBaseViewRange);
-
-        // defenders
-        for (int i = 0; i < 2; i++) {
-            auto & hero = m_heros[i];
-            if (hero.mad) ++m_madness;
-
-            if (shouldProtect(hero) && m_ourBase.mp >= ((i + 1) * kMagicManaCost)) {
-                hero.protect(hero.id);
+        // sort by risk (highest to lowest)
+        sort(monstersInOurBase.begin(), monstersInOurBase.end(), [&](const auto & a, const auto & b) {
+            return eval_risk(m_ourBase, a) > eval_risk(m_ourBase, b);
+        });
+        // per monster now
+        int x = 0;
+        while (m_queue.size() < 2 && x < monstersInOurBase.size()) {
+            auto & monster = monstersInOurBase[x];
+            if (monster.hp < 0) {
+                ++x;
                 continue;
             }
 
-            auto dist = distance(hero.pos, m_ourBase.pos);
-            int radiusOfDefence;
-            switch (m_phase) {
-                case StartingGame:
-                    radiusOfDefence = kOutterCircle; break;
-                case MiddleGame:
-                case EndingGame:
-                    radiusOfDefence = kMidCircle; break;
-                default: throw("unknow phase");
-            }
-            if (dist > radiusOfDefence + 2000) {
-                // Go too far, back to the position
-                hero.move(m_ourBase, radiusOfDefence, i * 60 + 15);
-                hero.say("Back");
-                continue;
-            }
-            if (m_enemies.empty()) {
-                auto monstersNearBy = hero.discover(m_monsters);
-                if (monstersNearBy.size() != 0) {
-                    hero.move(monstersNearBy.front().pos);
-                    hero.say("Faralë");
+            int idx = find_nearest_hero(monster, m_heros);
+            // this hero is not available
+            if (m_heros[idx].orderReceived()) {
+                // must handle the first monster
+                if (x == 0) {
+                    idx = kNumberOfDefenders - 1 - idx;
                 } else {
-                    // go to the defence post
-                    if (m_phase == EndingGame) {
-                        hero.move(m_ourBase, radiusOfDefence, i * 30 + 15);
-                    } else {
-                        hero.move(m_ourBase, radiusOfDefence, i * 60 + 15);
-                    }
-                    hero.say("Glories");
+                    ++x;
+                    continue;
                 }
-            } else {
-                auto distBaseMonster = distance(m_ourBase.pos, m_enemies.front().pos);
-                if (distBaseMonster <= kRadiusOfBase) {
-                    if (  canUseWindSpell(hero, m_enemies.front())
-                       && !m_heros[0].isWinding()) {
-                        auto & monster = m_enemies.front();
-                        if (  opponentsNearOurBase.size() != 0
-                           || monster.eta(m_ourBase) < monster.hp / kHeroPhysicAttackDmg) {
-                            hero.wind(m_theirBase.pos);
-                        }
-                    }
-                    if (!hero.orderReceived()) {
-                        hero.move(m_enemies.front().pos);
-                        hero.say("Focus!");
-                    }
-                } else if (distBaseMonster > kInnerCircle && distBaseMonster <= kMidCircle) {
-                    hero.move(m_enemies.front().pos);
-                    hero.say("Catch");
-                } else if (distBaseMonster > kMidCircle && distBaseMonster <= kOutterCircle) {
-                    vector<Monster> monstersInArea;
-                    for (const auto & m : m_enemies) {
-                        int deg = calc_degree_between(m_ourBase.pos, m.pos);
-                        if (deg >= (i * 45) && deg < ((i + 1) * 45)) {
-                            monstersInArea.push_back(m);
-                        }
-                    }
-                    if (monstersInArea.size() != 0) {
-                        hero.move(monstersInArea.front().pos);
-                        hero.say("Invaders!");
-                    } else {
-                        hero.move(m_ourBase, radiusOfDefence - 400, i * 60 + 15);
-                        hero.say("Withdraw");
-                    }
-                } else {
-                    auto monstersNearBy = hero.discover(m_monsters);
-                    if (monstersNearBy.size() != 0) {
-                        hero.move(monstersNearBy.front().pos);
-                        hero.say("Faralë");
-                    }
+            }
+            auto & hero = m_heros[idx];
+
+            if (canUseWindSpell(hero, monster) && m_ourBase.mp >= ((idx + 1) * kMagicManaCost)) {
+                if (opponentsNearOurBase.size() != 0 || !canEliminateMonster(hero, monster)) {
+                    Action a;
+                    a.subject = idx;
+                    a.verb = WIND;
+                    a.dest = m_theirBase.pos;
+                    m_queue.push(a);
+                    // dummy thing; placeholder
+                    hero.wait();
+                    // no need to handle this monster for a while
+                    monster.hp = -1;
+                }
+            }
+            if (!hero.orderReceived()) {
+                Action a;
+                a.subject = idx;
+                a.verb = MOVE;
+                a.dest = monster.pos;
+                a.msg = "Focus!";
+                m_queue.push(a);
+                // dummy thing; placeholder
+                hero.wait();
+                if (canEliminateMonster(hero, monster)) {
+                    monster.hp = -1;
                 }
             }
         }
+        if (m_queue.size() >= kNumberOfDefenders) return;
+
+        // stage5: enemies not far from our base
+        for (int idx = 0; idx < kHerosPerPlayer; ++idx) {
+            auto & hero = m_heros[idx];
+            if (hero.orderReceived())
+                continue;
+
+            auto monstersNearBy = hero.discover(m_monsters);
+            // sort by distance to my hero (nearest to farest)
+            sort(monstersNearBy.begin(), monstersNearBy.end(), [&](const auto & a, const auto & b) {
+                return distance(a.pos, hero.pos) < distance(b.pos, hero.pos);
+            });
+
+            if (monstersNearBy.size() != 0) {
+                Action a;
+                a.subject = idx;
+                a.verb = MOVE;
+                a.dest = monstersNearBy.front().pos;
+                a.msg = "Faralë";
+                m_queue.push(a);
+                // dummy thing; placeholder
+                hero.wait();
+            }
+        }
+    }
+
+    void strategy_one_attacker() {
+    //    static Point windNorth(0, kRadiusOfWind);
+    //    static Point windSouth(0, -kRadiusOfWind);
+    //    static Point windEast(kRadiusOfWind, 0);
+    //    static Point windWest(-kRadiusOfWind, 0);
+
+    //    // defenders
+    //    for (int i = 0; i < 2; i++) {
+    //        } else {
+    //            auto distBaseMonster = distance(m_ourBase.pos, m_enemies.front().pos);
+    //            if (distBaseMonster <= kRadiusOfBase) {
+    //                if (  canUseWindSpell(hero, m_enemies.front())
+    //                   && !m_heros[0].isWinding()) {
+    //                    auto & monster = m_enemies.front();
+    //                    if (  opponentsNearOurBase.size() != 0
+    //                       || monster.eta(m_ourBase) < monster.hp / kHeroPhysicAttackDmg) {
+    //                        hero.wind(m_theirBase.pos);
+    //                    }
+    //                }
+    //                if (!hero.orderReceived()) {
+    //                    hero.move(m_enemies.front().pos);
+    //                    hero.say("Focus!");
+    //                }
+    //            } else if (distBaseMonster > kInnerCircle && distBaseMonster <= kMidCircle) {
+    //                hero.move(m_enemies.front().pos);
+    //                hero.say("Catch");
+    //            } else if (distBaseMonster > kMidCircle && distBaseMonster <= kOutterCircle) {
+    //                vector<Monster> monstersInArea;
+    //                for (const auto & m : m_enemies) {
+    //                    int deg = calc_degree_between(m_ourBase.pos, m.pos);
+    //                    if (deg >= (i * 45) && deg < ((i + 1) * 45)) {
+    //                        monstersInArea.push_back(m);
+    //                    }
+    //                }
+    //                if (monstersInArea.size() != 0) {
+    //                    hero.move(monstersInArea.front().pos);
+    //                    hero.say("Invaders!");
+    //                } else {
+    //                    hero.move(m_ourBase, radiusOfDefence - 400, i * 60 + 15);
+    //                    hero.say("Withdraw");
+    //                }
+    //            } else {
+    //                auto monstersNearBy = hero.discover(m_monsters);
+    //                if (monstersNearBy.size() != 0) {
+    //                    hero.move(monstersNearBy.front().pos);
+    //                    hero.say("Faralë");
+    //                }
+    //            }
+    //        }
+    //    }
+    //
+        command_the_defenders();
         command_the_attacker();
+    }
+
+    bool canEliminateMonster(const Hero & hero, const Monster & monster) {
+        if (monster.hp < monster.eta(m_ourBase) * kHeroPhysicAttackDmg) {
+            return true;
+        }
+        return false;
     }
 
     bool canUseWindSpell(const Hero & hero, const Monster & monster) const {
@@ -841,7 +1061,7 @@ private:
         return false;
     }
 
-    bool shouldProtect(const Hero & hero) const {
+    bool shouldSelfProtect(const Hero & hero) const {
         int maxHp = find_max_hp(m_monsters);
         if (maxHp >= 20 && hero.shield == 0 && m_madness > 1) {
             return true;
@@ -888,7 +1108,10 @@ private:
     Phase m_phase;
     bool m_blue;
 
+    queue<Action> m_queue;
+
     unordered_map<int, Entity> m_world;
+
 
     vector<Hero> m_heros;
     vector<Monster> m_monsters;

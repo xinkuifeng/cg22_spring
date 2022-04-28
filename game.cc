@@ -568,7 +568,7 @@ public:
             cerr << "Warning: more than 2 commands for the defenders." << endl;
         }
 
-        cerr << "Before dequeueing m_queue size: " << m_queue.size() << endl;
+        //cerr << "Before dequeueing m_queue size: " << m_queue.size() << endl;
         vector<bool> seen = { false, false };
         while (!m_queue.empty()) {
             auto a = m_queue.front();
@@ -605,8 +605,9 @@ public:
                     hero.wait();
                     break;
             }
+            if (!a.msg.empty()) hero.say(a.msg);
         }
-        cerr << "After dequeueing m_queue size: " << m_queue.size() << endl;
+        //cerr << "After dequeueing m_queue size: " << m_queue.size() << endl;
 
         for (auto & h : m_heros) {
             h.confirmOrder();
@@ -882,7 +883,7 @@ private:
                 hero.wait();
             }
         }
-        cerr << "FXK says, stage1 done: queue_size=" << m_queue.size() << endl;
+        //cerr << "FXK says, stage1 done: queue_size=" << m_queue.size() << endl;
         if (m_queue.size() >= kNumberOfDefenders) return;
 
         int radiusOfDefence;
@@ -914,7 +915,7 @@ private:
                 // dummy thing; placeholder
                 hero.wait();
             }
-            cerr << "FXK says, stage2 done: queue_size=" << m_queue.size() << endl;
+            //cerr << "FXK says, stage2 done: queue_size=" << m_queue.size() << endl;
             if (m_queue.size() >= kNumberOfDefenders) return;
 
             // stage3: no enemies at all
@@ -944,7 +945,7 @@ private:
                 // dummy thing; placeholder
                 hero.wait();
             }
-            cerr << "FXK says, stage3 done: queue_size=" << m_queue.size() << endl;
+            //cerr << "FXK says, stage3 done: queue_size=" << m_queue.size() << endl;
             if (m_queue.size() >= kNumberOfDefenders) return;
         }
         if (m_queue.size() >= 2) return;
@@ -1012,7 +1013,7 @@ private:
                 }
             }
         }
-        cerr << "FXK says, stage4 done: queue_size=" << m_queue.size() << endl;
+        //cerr << "FXK says, stage4 done: queue_size=" << m_queue.size() << endl;
         if (m_queue.size() >= kNumberOfDefenders) return;
 
         // stage5: enemies not far from our base
@@ -1052,7 +1053,7 @@ private:
                 hero.wait();
             }
         }
-        cerr << "FXK says, stage5 done: queue_size=" << m_queue.size() << endl;
+        //cerr << "FXK says, stage5 done: queue_size=" << m_queue.size() << endl;
     }
 
     void strategy_one_attacker() {
@@ -1257,7 +1258,7 @@ int main()
             units.push_back(e);
         }
         brain.parse(units);
-        brain.showGameInfo();
+        //brain.showGameInfo();
         brain.play();
     }
 }

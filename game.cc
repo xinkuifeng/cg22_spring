@@ -488,7 +488,7 @@ int find_nearest_hero(const Monster & monster, const vector<Hero> & heros) {
     return ans;
 }
 
-// produce the index of this defender 
+// produce the index of this defender
 int find_nearest_defender(const Monster & monster, const vector<Hero> & heros) {
     int ans;
     int min_dist = kVeryBigDistance;
@@ -582,7 +582,6 @@ public:
             cerr << "Warning: more than 2 commands for the defenders." << endl;
         }
 
-        //cerr << "Before dequeueing m_queue size: " << m_queue.size() << endl;
         vector<bool> seen = { false, false };
         while (!m_queue.empty()) {
             auto a = m_queue.front();
@@ -594,6 +593,7 @@ public:
                 continue;
             } else {
                 seen[idx] = true;
+                cerr << "Debug: " << a << endl;
             }
 
             auto & hero = m_heros[idx];
@@ -621,7 +621,6 @@ public:
             }
             if (!a.msg.empty()) hero.say(a.msg);
         }
-        //cerr << "After dequeueing m_queue size: " << m_queue.size() << endl;
 
         for (auto & h : m_heros) {
             h.confirmOrder();
@@ -801,7 +800,6 @@ private:
                         return;
                     }
                 }
-                auto throwables = hero.estimateWindAttackVictims(monstersNearBy);
                 // when I'm near enough
                 if (shouldUseWindSpell(hero, monstersNearBy)) {
                     hero.wind(m_theirBase.pos);
@@ -835,12 +833,6 @@ private:
 
     void protect_allies() {
         auto & hero = m_heros[2];
-
-        //auto opponentsNearBy = hero.discover(m_opponents);
-        //if (opponentsNearBy.size() != 0 && m_ourBase.mp >= 3 * kMagicManaCost) {
-        //    hero.control(opponentsNearBy.front(), m_ourBase.pos);
-        //    return;
-        //}
 
         auto monstersNearBy = hero.discover(m_monsters);
         if (monstersNearBy.empty()) {
@@ -897,43 +889,69 @@ private:
                 hero.wait();
             }
         }
-        //cerr << "FXK says, stage1 done: queue_size=" << m_queue.size() << endl;
         if (m_queue.size() >= kNumberOfDefenders) return;
 
         int radiusOfDefence;
+        int defaultAngle;
+        vector<int> defaultAngles = { 0, 0 };
         switch (m_phase) {
             case StartingGame:
-                radiusOfDefence = kOutterCircle; break;
+                radiusOfDefence = kOutterCircle;
+                defaultAngles[0] = 15;
+                defaultAngles[1] = 75;
+                break;
             case MiddleGame:
             case EndingGame:
-                radiusOfDefence = kMidCircle; break;
+                radiusOfDefence = kMidCircle;
+                defaultAngles[0] = 45;
+                defaultAngles[1] = 60;
+                break;
             default: throw("unknow phase");
         }
+        // focus on the opponents in our base first
+        auto opponentsNearOurBase =
+            discover_in_range(m_opponents, m_ourBase.pos, kBaseViewRange + kHeroViewRange);
+        // sort by the distance to my base (nearest to farest)
+        sort(opponentsNearOurBase.begin(), opponentsNearOurBase.end(), [&](int id1, int id2) {
+            auto pos1 = m_world[id1].pos;
+            auto pos2 = m_world[id2].pos;
+            return distance(pos1, m_ourBase.pos) < distance(pos2, m_ourBase.pos);
+        });
+        bool alert = false;
+        if (opponentsNearOurBase.size() != 0) {
+            alert = true;
+            radiusOfDefence = kMidCircle - 300;
+            int id = opponentsNearOurBase.front();
+            auto & opponent = m_world[id];
+            defaultAngles[0] = calc_degree_between(m_ourBase.pos, opponent.pos);
+            defaultAngles[1] = defaultAngles[0] + 15;
+        }
+        if (opponentsNearOurBase.size() > 1) {
+            int id = opponentsNearOurBase[1];
+            auto & opponent = m_world[id];
+            defaultAngles[1] = calc_degree_between(m_ourBase.pos, opponent.pos);
+        }
+
         // per hero
         for (int i = 0; i < kNumberOfDefenders; ++i) {
             auto & hero = m_heros[i];
             auto dist = distance(hero.pos, m_ourBase.pos);
             // stage2: do not go too far
-            if (dist > radiusOfDefence + 1800) {
-                // back to the position
+            if (dist > radiusOfDefence + 1500) {
+                // back to the default position
                 Action a;
                 a.subject = i;
                 a.verb = MOVE;
-                if (m_phase == EndingGame) {
-                    a.dest = compute_cartesian_point(m_ourBase, radiusOfDefence, i * 30 + 15);
-                } else {
-                    a.dest = compute_cartesian_point(m_ourBase, radiusOfDefence, i * 60 + 15);
-                }
+                a.dest = compute_cartesian_point(m_ourBase, radiusOfDefence, defaultAngles[i]);
                 a.msg = "Back";
                 m_queue.push(a);
                 // dummy thing; placeholder
                 hero.wait();
             }
-            //cerr << "FXK says, stage2 done: queue_size=" << m_queue.size() << endl;
             if (m_queue.size() >= kNumberOfDefenders) return;
 
             // stage3: no enemies at all
-            if (m_enemies.empty()) {
+            if (m_enemies.empty() && opponentsNearOurBase.empty()) {
                 auto monstersNearBy = hero.discover(m_monsters);
                 // sort from the nearest to the farest
                 sort(monstersNearBy.begin(), monstersNearBy.end(), [&](const auto & a, const auto & b) {
@@ -947,32 +965,19 @@ private:
                     a.dest = monstersNearBy.front().pos;
                     a.msg = "Faralë";
                 } else {
-                    // go to the defence post
-                    if (m_phase == EndingGame) {
-                        a.dest = compute_cartesian_point(m_ourBase, radiusOfDefence, i * 30 + 15);
-                    } else {
-                        a.dest = compute_cartesian_point(m_ourBase, radiusOfDefence, i * 60 + 15);
-                    }
+                    // go to the default position
+                    a.dest = compute_cartesian_point(m_ourBase, radiusOfDefence, defaultAngles[i]);
                     a.msg = "Glories";
                 }
                 m_queue.push(a);
                 // dummy thing; placeholder
                 hero.wait();
             }
-            //cerr << "FXK says, stage3 done: queue_size=" << m_queue.size() << endl;
             if (m_queue.size() >= kNumberOfDefenders) return;
         }
         if (m_queue.size() >= kNumberOfDefenders) return;
 
-        // stage4: focus on enemies in our base first
-        auto opponentsNearOurBase =
-            discover_in_range(m_opponents, m_ourBase.pos, kBaseViewRange + kHeroViewRange);
-        // sort by the distance to my base (nearest to farest)
-        sort(opponentsNearOurBase.begin(), opponentsNearOurBase.end(), [&](int id1, int id2) {
-            auto pos1 = m_world[id1].pos;
-            auto pos2 = m_world[id2].pos;
-            return distance(pos1, m_ourBase.pos) < distance(pos2, m_ourBase.pos);
-        });
+        // stage4: focus on the enemies in our base
         auto monstersInOurBase = discover_in_range(m_monsters, m_ourBase.pos, kRadiusOfBase);
         // sort by risk (highest to lowest)
         sort(monstersInOurBase.begin(), monstersInOurBase.end(), [&](const auto & a, const auto & b) {
@@ -1027,7 +1032,6 @@ private:
                 }
             }
         }
-        //cerr << "FXK says, stage4 done: queue_size=" << m_queue.size() << endl;
         if (m_queue.size() >= kNumberOfDefenders) return;
 
         // stage5: enemies not far from our base
@@ -1036,38 +1040,37 @@ private:
             if (hero.orderReceived())
                 continue;
 
-            auto monstersNearBy = hero.discover(m_monsters);
-            // sort by distance to my hero (nearest to farest)
-            sort(monstersNearBy.begin(), monstersNearBy.end(), [&](const auto & a, const auto & b) {
-                return distance(a.pos, hero.pos) < distance(b.pos, hero.pos);
-            });
+            // no alert => go farm
+            if (!alert) {
+                auto monstersNearBy = hero.discover(m_monsters);
+                // sort by distance to my hero (nearest to farest)
+                sort(monstersNearBy.begin(), monstersNearBy.end(), [&](const auto & a, const auto & b) {
+                    return distance(a.pos, hero.pos) < distance(b.pos, hero.pos);
+                });
 
-            if (monstersNearBy.size() != 0) {
-                Action a;
-                a.subject = idx;
-                a.verb = MOVE;
-                a.dest = monstersNearBy.front().pos;
-                a.msg = "Faralë";
-                m_queue.push(a);
-                // dummy thing; placeholder
-                hero.wait();
-            } else {
-                // no enemies. back to the position
-                Action a;
-                a.subject = idx;
-                a.verb = MOVE;
-                if (m_phase == EndingGame) {
-                    a.dest = compute_cartesian_point(m_ourBase, radiusOfDefence, idx * 30 + 15);
-                } else {
-                    a.dest = compute_cartesian_point(m_ourBase, radiusOfDefence, idx * 60 + 15);
+                if (monstersNearBy.size() != 0) {
+                    Action a;
+                    a.subject = idx;
+                    a.verb = MOVE;
+                    a.dest = monstersNearBy.front().pos;
+                    a.msg = "Faralë";
+                    m_queue.push(a);
+                    // dummy thing; placeholder
+                    hero.wait();
                 }
-                a.msg = "Glories";
-                m_queue.push(a);
-                // dummy thing; placeholder
-                hero.wait();
             }
+            if (hero.orderReceived()) continue;
+
+            // no enemies. back to the position
+            Action a;
+            a.subject = idx;
+            a.verb = MOVE;
+            a.dest = compute_cartesian_point(m_ourBase, radiusOfDefence, defaultAngles[idx]);
+            a.msg = "Glories";
+            m_queue.push(a);
+            // dummy thing; placeholder
+            hero.wait();
         }
-        //cerr << "FXK says, stage5 done: queue_size=" << m_queue.size() << endl;
     }
 
     void strategy_one_attacker() {

@@ -129,7 +129,46 @@ struct Action {
     string msg;
 
     Action() : subject(0), verb(WAIT), object(0), dest(), msg() {}
+
+    void display(std::ostream & os) const {
+        string verbName;
+        switch (verb) {
+            case WAIT:
+                verbName = "WAIT";
+                break;
+
+            case MOVE:
+                verbName = "MOVE";
+                break;
+
+            case PROTECT:
+                verbName = "PROTECT";
+                break;
+
+            case CONTROL:
+                verbName = "CONTROL";
+                break;
+
+            case WIND:
+                verbName = "WIND";
+                break;
+
+            default:
+                verbName = "???";
+                break;
+        }
+        cerr << "Action: subject(idx)=" << subject;
+        cerr << "; verb=" << verbName;
+        cerr << "; object(id)=" << object;
+        cerr << "; dest=" << dest;
+        cerr << "; msg=" << msg;
+    }
 };
+
+std::ostream & operator<<(std::ostream & os, const Action & a) {
+    a.display(os);
+    return os;
+}
 
 struct RadianPoint {
     Point orig;
@@ -529,6 +568,7 @@ public:
             cerr << "Warning: more than 2 commands for the defenders." << endl;
         }
 
+        cerr << "Before dequeueing m_queue size: " << m_queue.size() << endl;
         vector<bool> seen = { false, false };
         while (!m_queue.empty()) {
             auto a = m_queue.front();
@@ -536,6 +576,7 @@ public:
             int idx = a.subject;
             if (seen[idx]) {
                 cerr << "Warning: discard one command for Hero " << m_heros[idx].id << endl;
+                cerr << "Raw " << a << endl;
                 continue;
             } else {
                 seen[idx] = true;
@@ -565,11 +606,11 @@ public:
                     break;
             }
         }
+        cerr << "After dequeueing m_queue size: " << m_queue.size() << endl;
 
         for (auto & h : m_heros) {
             h.confirmOrder();
         }
-
     }
 
     // for debug purpose
@@ -668,9 +709,17 @@ private:
     }
 
     void idle() {
-        for (int i = 0; i < kHerosPerPlayer; i++) {
-            m_heros[i].wait();
-        }
+        //for (int i = 0; i < kHerosPerPlayer; i++) {
+        //    m_heros[i].wait();
+        //}
+        Action a;
+        m_queue.push(a);
+        a.subject = 1;
+        m_queue.push(a);
+        m_heros[2].wait();
+        //for (int i = 0; i < kHerosPerPlayer; i++) {
+        //    m_heros[i].wait();
+        //}
     }
 
     void command_the_attacker() {
@@ -821,7 +870,7 @@ private:
             if (m_heros[i].mad)
                 ++m_madness;
         }
-        for (int i = 0; kNumberOfDefenders; ++i) {
+        for (int i = 0; i < kNumberOfDefenders; ++i) {
             auto & hero = m_heros[i];
             if (shouldSelfProtect(hero) && m_ourBase.mp >= ((i + 1) * kMagicManaCost)) {
                 Action a;
@@ -833,6 +882,7 @@ private:
                 hero.wait();
             }
         }
+        cerr << "FXK says, stage1 done: queue_size=" << m_queue.size() << endl;
         if (m_queue.size() >= kNumberOfDefenders) return;
 
         int radiusOfDefence;
@@ -845,22 +895,26 @@ private:
             default: throw("unknow phase");
         }
         // per hero
-        for (int i = 0; kNumberOfDefenders; ++i) {
+        for (int i = 0; i < kNumberOfDefenders; ++i) {
             auto & hero = m_heros[i];
             auto dist = distance(hero.pos, m_ourBase.pos);
             // stage2: do not go too far
             if (dist > radiusOfDefence + 2000) {
                 // back to the position
-                hero.move(m_ourBase, radiusOfDefence, i * 60 + 15);
                 Action a;
                 a.subject = i;
                 a.verb = MOVE;
-                a.dest = compute_cartesian_point(m_ourBase, radiusOfDefence, i * 60 + 15);
+                if (m_phase == EndingGame) {
+                    a.dest = compute_cartesian_point(m_ourBase, radiusOfDefence, i * 30 + 15);
+                } else {
+                    a.dest = compute_cartesian_point(m_ourBase, radiusOfDefence, i * 60 + 15);
+                }
                 a.msg = "Back";
                 m_queue.push(a);
                 // dummy thing; placeholder
                 hero.wait();
             }
+            cerr << "FXK says, stage2 done: queue_size=" << m_queue.size() << endl;
             if (m_queue.size() >= kNumberOfDefenders) return;
 
             // stage3: no enemies at all
@@ -890,6 +944,7 @@ private:
                 // dummy thing; placeholder
                 hero.wait();
             }
+            cerr << "FXK says, stage3 done: queue_size=" << m_queue.size() << endl;
             if (m_queue.size() >= kNumberOfDefenders) return;
         }
         if (m_queue.size() >= 2) return;
@@ -957,10 +1012,11 @@ private:
                 }
             }
         }
+        cerr << "FXK says, stage4 done: queue_size=" << m_queue.size() << endl;
         if (m_queue.size() >= kNumberOfDefenders) return;
 
         // stage5: enemies not far from our base
-        for (int idx = 0; idx < kHerosPerPlayer; ++idx) {
+        for (int idx = 0; idx < kNumberOfDefenders; ++idx) {
             auto & hero = m_heros[idx];
             if (hero.orderReceived())
                 continue;
@@ -980,8 +1036,23 @@ private:
                 m_queue.push(a);
                 // dummy thing; placeholder
                 hero.wait();
+            } else {
+                // no enemies. back to the position
+                Action a;
+                a.subject = idx;
+                a.verb = MOVE;
+                if (m_phase == EndingGame) {
+                    a.dest = compute_cartesian_point(m_ourBase, radiusOfDefence, idx * 30 + 15);
+                } else {
+                    a.dest = compute_cartesian_point(m_ourBase, radiusOfDefence, idx * 60 + 15);
+                }
+                a.msg = "Glories";
+                m_queue.push(a);
+                // dummy thing; placeholder
+                hero.wait();
             }
         }
+        cerr << "FXK says, stage5 done: queue_size=" << m_queue.size() << endl;
     }
 
     void strategy_one_attacker() {

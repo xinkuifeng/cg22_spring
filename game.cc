@@ -1216,11 +1216,13 @@ private:
         }
     }
 
+    // for attacker only
     bool shouldUseWindSpell(const Hero & hero, const Monster & monster) const {
-        auto dist = distance(hero.pos, monster.pos);
-        if (  dist <= kRadiusOfWind
-           && monster.shield == 0
-           && monster.hp >= 17) {
+        int dh = distance(monster.pos, hero.pos);
+        int db = distance(monster.pos, m_theirBase.pos);
+        if (  dh <= kRadiusOfWind
+           && db <= 7000
+           && monster.shield == 0) {
             return true;
         }
         return false;

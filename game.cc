@@ -561,9 +561,9 @@ public:
         ++m_turns;
 
         int maxHp = find_max_hp(m_enemies);
-        if (maxHp >= 24) {
+        if (maxHp >= 24 && m_phase == MiddleGame) {
             m_phase = EndingGame;
-        } else if (maxHp >= 17) {
+        } else if (maxHp >= 17 && m_ourBase.mp >= 200) {
             m_phase = MiddleGame;
         } else {
             // do nothing
@@ -908,9 +908,9 @@ private:
                 break;
             default: throw("unknow phase");
         }
-        // focus on the opponents in our base first
+        // find on the opponents near our base
         auto opponentsNearOurBase =
-            discover_in_range(m_opponents, m_ourBase.pos, kBaseViewRange + kHeroViewRange);
+            discover_in_range(m_opponents, m_ourBase.pos, kOutterCircle);
         // sort by the distance to my base (nearest to farest)
         sort(opponentsNearOurBase.begin(), opponentsNearOurBase.end(), [&](int id1, int id2) {
             auto pos1 = m_world[id1].pos;
@@ -920,11 +920,13 @@ private:
         bool alert = false;
         if (opponentsNearOurBase.size() != 0) {
             alert = true;
-            radiusOfDefence = kMidCircle - 300;
+
             int id = opponentsNearOurBase.front();
             auto & opponent = m_world[id];
+            int dist = distance(opponent.pos, m_ourBase.pos);
+            radiusOfDefence = std::min(kMidCircle, dist);
             defaultAngles[0] = calc_degree_between(m_ourBase.pos, opponent.pos);
-            defaultAngles[1] = defaultAngles[0] + 15;
+            defaultAngles[1] = defaultAngles[0] + 30;
         }
         if (opponentsNearOurBase.size() > 1) {
             int id = opponentsNearOurBase[1];

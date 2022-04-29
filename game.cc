@@ -807,9 +807,9 @@ private:
             }
         }
 
-        // rush
+        // elvish: rush
         hero.move(pos);
-        hero.say("rush");
+        hero.say("Alco");
         return false;
     }
 
@@ -817,9 +817,15 @@ private:
     bool wait_and_protect(const Point & pos) {
         auto & hero = m_heros[2];
         auto monstersNearBy = hero.discover(m_monsters);
-        // sort from the highest risk to the lowest
+        // sort by health and by eta
         sort(monstersNearBy.begin(), monstersNearBy.end(), [&](const auto & a, const auto & b) {
-            return eval_risk(m_theirBase, a) > eval_risk(m_theirBase, b);
+            if (a.hp > b.hp) {
+                return true;
+            } else if (a.hp == b.hp) {
+                return eval_risk(m_theirBase, a) > eval_risk(m_theirBase, b);
+            } else {
+                return false;
+            }
         });
         // have enough mana
         if (m_ourBase.mp >= 3 * kMagicManaCost) {
@@ -839,7 +845,8 @@ private:
             }
         }
         hero.move(pos);
-        hero.say("Wait there");
+        // elvish: there
+        hero.say("sanomë");
         return false;
     }
 
@@ -1227,13 +1234,10 @@ private:
     }
 
     bool shouldUseShieldSpell(const Hero & hero, const Monster & monster) const {
-        auto dist = distance(hero.pos, monster.pos);
         auto eta = monster.eta(m_theirBase);
-        if (  dist <= kHeroViewRange
-           && monster.shield == 0
+        if (  monster.shield == 0
            && eta >= 0
-           && eta <= 14
-           && monster.hp >= 17) {
+           && eta <= 13) {
             return true;
         }
         return false;

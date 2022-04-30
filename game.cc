@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <cmath>
 #include <iostream>
+#include <list>
 #include <queue>
 #include <sstream>
 #include <string>
@@ -61,6 +62,7 @@ bool is_top_lane(const Point & ref, const Point & other);
 bool is_lower_area(const Point & ref, const Point & other);
 bool is_upper_area(const Point & ref, const Point & other);
 Point compute_cartesian_point(const Base & base, int r, int angle);
+int other_defencer(int idx);
 
 /*****************************************************************************
  * Types
@@ -334,6 +336,15 @@ int find_max_hp(const vector<Monster> & monsters) {
     return ans;
 }
 
+int other_defencer(int idx) {
+    if (idx < 0 || idx >= kNumberOfDefenders) {
+        cerr << "Wrong Hero index: " << idx << endl;
+        return 0;
+    }
+
+    return kNumberOfDefenders - 1 - idx;
+}
+
 // eval the risk of this monster based on its eta to the base
 int eval_risk(const Base & ref, const Monster & m) {
     int ans = 0;
@@ -391,6 +402,12 @@ public:
     void wait() {
         undo();
         m_cmd << "WAIT Ndorē";
+    }
+
+    // enter a dummy action (a placeholder) which can be overriden
+    void end() {
+        undo();
+        m_cmd << "WAIT End";
     }
 
     void wind(const Point & toward) {
@@ -515,6 +532,14 @@ public:
         m_endPos = m_blue ? Point(11130, 6800) : Point(kWidth - 11130, kHeight - 6800);
         //m_attackPos = m_blue ? Point(11130, 6800) : Point(kWidth - 11130, kHeight - 6800);
         m_attackPos = m_blue ? Point(12549, 6800) : Point(kWidth - 12549, kHeight - 6800);
+
+        // three default positions
+        Point p = compute_cartesian_point(m_ourBase, kMidCircle, 30);
+        m_defaultPos.push_back(p);
+        p = compute_cartesian_point(m_ourBase, kMidCircle, 60);
+        m_defaultPos.push_back(p);
+        p = Point(kWidth / 2, kHeight / 2);
+        m_defaultPos.push_back(p);
     }
 
     void updateOurBase(int hp, int mp) {
@@ -976,6 +1001,151 @@ private:
         }
     }
 
+    // For defencer only: can update the state of the monster
+    void attack_the_monster(int idx, Monster & monster) {
+        auto & hero = m_heros[idx];
+
+        // magic attack first
+        if (m_ourBase.mp >= kMagicManaCost) {
+            // Wind attack
+            if (canUseWindSpell(hero, monster)) {
+                // find on the opponents near our base
+                auto opponentsNearOurBase =
+                    discover_in_range(m_opponents, m_ourBase.pos, kMidCircle);
+                // sort by the distance to my base (nearest to farest)
+                sort(opponentsNearOurBase.begin(), opponentsNearOurBase.end(), [&](int id1, int id2) {
+                    auto pos1 = m_world[id1].pos;
+                    auto pos2 = m_world[id2].pos;
+                    return distance(pos1, m_ourBase.pos) < distance(pos2, m_ourBase.pos);
+                });
+                bool shallUseWind = opponentsNearOurBase.size() != 0 &&
+                    (distance(m_world[opponentsNearOurBase.front()].pos, monster.pos) <= kHeroViewRange);
+                if (shallUseWind || !canEliminateMonster(hero, monster)) {
+                    Action a;
+                    a.subject = idx;
+                    a.verb = WIND;
+                    a.dest = m_theirBase.pos;
+                    m_queue.push(a);
+                    hero.end();
+                    m_ourBase.mp -= kMagicManaCost;
+                    // no need to handle this monster for a while
+                    monster.hp = -1;
+                }
+            }
+        }
+
+        // physic attack
+        if (!hero.orderReceived()) {
+            Action a;
+            a.subject = idx;
+            a.verb = MOVE;
+            a.dest = monster.pos;
+            a.msg = "Focus!";
+            m_queue.push(a);
+            hero.end();
+            if (canEliminateMonster(hero, monster)) {
+                monster.hp = -1;
+            }
+        }
+    }
+
+    // Hero back to the position
+    void back_to_the_position(int idx, const Point & pos) {
+        auto & hero = m_heros[idx];
+
+        Action a;
+        a.subject = idx;
+        a.verb = MOVE;
+        a.dest = pos;
+        // elvish: runsh
+        a.msg = "Alco";
+        m_queue.push(a);
+        hero.end();
+    }
+
+    void command_the_defenders_new() {
+        std::list<Monster> enemiesInOurBase;
+        for (const auto & m : m_enemies) {
+            int dist = distance(m.pos, m_ourBase.pos);
+            if (dist <= kMidCircle) {
+                enemiesInOurBase.push_back(m);
+            }
+        }
+
+
+
+
+        if (m_enemies.size() != 0) {
+            // must handle the first monster
+            auto & monster = m_enemies.front();
+            int idx = find_nearest_defender(monster, m_heros);
+            auto & hero = m_heros[idx];
+            attack_the_monster(idx, monster);
+
+            int j = other_defencer(idx);
+            auto & other = m_heros[j];
+            if (monster.hp > 0) {
+                attack_the_monster(j, monster);
+                return;
+            }
+
+            auto monstersNearBy = other.discover(m_monsters);
+            // sort by distance and by risk
+            sort(monstersNearBy.begin(), monstersNearBy.end(), [&](const auto & a, const auto & b) {
+                int da = distance(a.pos, other.pos);
+                int db = distance(b.pos, other.pos);
+                if (da < db) {
+                    return true;
+                } else if (da == db) {
+                    eval_risk(m_ourBase, a) > eval_risk(m_ourBase, b);
+                    return true;
+                } else {
+                    return false;
+                }
+            });
+
+            // attack the nearest monster
+            for (int i = 0; i < kNumberOfDefenders && i < m_monsters.size(); ++i) {
+                auto & monster = m_monsters[i];
+                int dist = distance(monster.pos, m_ourBase.pos);
+                if (monster.hp < 0 || dist > kOutterCircle) continue;
+
+                attack_the_monster(j, monster);
+                return;
+            }
+
+            // attack the second enemy
+            for (int i = 0; i < kNumberOfDefenders && i < m_enemies.size(); ++i) {
+                auto & monster = m_enemies[i];
+                int dist = distance(monster.pos, m_ourBase.pos);
+                if (monster.hp < 0 || dist > kOutterCircle) continue;
+
+                attack_the_monster(j, monster);
+                return;
+            }
+
+            back_to_the_position(j, m_defaultPos[j]);
+        } else {
+            for (int idx = 0; idx < kNumberOfDefenders; ++idx) {
+                auto & hero = m_heros[idx];
+                // go farm
+                auto monstersNearBy = hero.discover(m_monsters);
+                // sort by distance to my hero (nearest to farest)
+                sort(monstersNearBy.begin(), monstersNearBy.end(), [&](const auto & a, const auto & b) {
+                    return distance(a.pos, hero.pos) < distance(b.pos, hero.pos);
+                });
+
+                if (monstersNearBy.size() != 0) {
+                    attack_the_monster(idx, monstersNearBy.front());
+                    continue;
+                }
+
+                back_to_the_position(idx, m_defaultPos[idx]);
+            }
+            return;
+        }
+    }
+
     void command_the_defenders() {
         // stage1: use shield to protect ourselves
         for (int i = 0; i < kNumberOfDefenders; ++i) {
@@ -1181,7 +1351,8 @@ private:
     }
 
     void strategy_one_attacker() {
-        command_the_defenders();
+        //command_the_defenders();
+        command_the_defenders_new();
         command_the_attacker_new();
     }
 
@@ -1193,7 +1364,7 @@ private:
     }
 
     bool canUseWindSpell(const Hero & hero, const Monster & monster) const {
-        auto dist = distance(hero.pos, monster.pos);
+        int dist = distance(hero.pos, monster.pos);
         if (dist <= kRadiusOfWind && m_ourBase.mp >= kMagicManaCost && monster.shield == 0) {
             return true;
         }
@@ -1256,6 +1427,7 @@ private:
     Point m_startPos;
     Point m_endPos;
     Point m_attackPos;
+    vector<Point> m_defaultPos;
 
     queue<Action> m_queue;
 

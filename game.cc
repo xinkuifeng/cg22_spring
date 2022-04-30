@@ -1065,7 +1065,29 @@ private:
         hero.end();
     }
 
+    void update_the_default_positions() {
+        // find on the opponents near our base
+        auto opponentsNearOurBase =
+            discover_in_range(m_opponents, m_ourBase.pos, kMidCircle);
+        // sort by the distance to my base (nearest to farest)
+        sort(opponentsNearOurBase.begin(), opponentsNearOurBase.end(), [&](int id1, int id2) {
+            auto pos1 = m_world[id1].pos;
+            auto pos2 = m_world[id2].pos;
+            return distance(pos1, m_ourBase.pos) < distance(pos2, m_ourBase.pos);
+        });
+        for (int idx = 0; idx < kNumberOfDefenders && idx < opponentsNearOurBase.size(); ++idx) {
+            auto & opponent = m_world[opponentsNearOurBase[idx]];
+            int dist = distance(opponent.pos, m_ourBase.pos);
+            int radius = kMidCircle;
+            int degree = calc_degree_between(m_ourBase.pos, opponent.pos);
+            Point p = compute_cartesian_point(m_ourBase, radius, degree);
+            m_defaultPos[idx] = p;
+        }
+    }
+
     void command_the_defenders_new() {
+        update_the_default_positions();
+
         vector<Monster> enemiesNearOurBase;
         for (const auto & m : m_enemies) {
             int dist = distance(m.pos, m_ourBase.pos);

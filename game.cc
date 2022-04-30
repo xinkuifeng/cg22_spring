@@ -1025,6 +1025,7 @@ private:
                     a.subject = idx;
                     a.verb = WIND;
                     a.dest = m_theirBase.pos;
+                    a.object = monster.id;
                     m_queue.push(a);
                     hero.end();
                     m_ourBase.mp -= kMagicManaCost;
@@ -1040,6 +1041,7 @@ private:
             a.subject = idx;
             a.verb = MOVE;
             a.dest = monster.pos;
+            a.object = monster.id;
             a.msg = "Focus!";
             m_queue.push(a);
             hero.end();
@@ -1064,20 +1066,22 @@ private:
     }
 
     void command_the_defenders_new() {
-        std::list<Monster> enemiesInOurBase;
+        vector<Monster> enemiesNearOurBase;
         for (const auto & m : m_enemies) {
             int dist = distance(m.pos, m_ourBase.pos);
             if (dist <= kMidCircle) {
-                enemiesInOurBase.push_back(m);
+                enemiesNearOurBase.push_back(m);
             }
         }
+        // sort by risk
+        //sort(enemiesNearOurBase.begin(), enemiesNearOurBase.end(), [&](const auto & a, const auto & b) {
+        //    return eval_risk(m_ourBase, a) > eval_risk(m_ourBase, b);
+        //});
 
-
-
-
-        if (m_enemies.size() != 0) {
+        // highest priority (per monster)
+        if (enemiesNearOurBase.size() != 0) {
             // must handle the first monster
-            auto & monster = m_enemies.front();
+            auto & monster = enemiesNearOurBase.front();
             int idx = find_nearest_defender(monster, m_heros);
             auto & hero = m_heros[idx];
             attack_the_monster(idx, monster);
@@ -1089,61 +1093,61 @@ private:
                 return;
             }
 
-            auto monstersNearBy = other.discover(m_monsters);
-            // sort by distance and by risk
+            auto monstersNearBy = other.discover(enemiesNearOurBase);
+            // sort by distance (to the hero) and by risk
             sort(monstersNearBy.begin(), monstersNearBy.end(), [&](const auto & a, const auto & b) {
                 int da = distance(a.pos, other.pos);
                 int db = distance(b.pos, other.pos);
                 if (da < db) {
                     return true;
                 } else if (da == db) {
-                    eval_risk(m_ourBase, a) > eval_risk(m_ourBase, b);
-                    return true;
+                    return eval_risk(m_ourBase, a) > eval_risk(m_ourBase, b);
                 } else {
                     return false;
                 }
             });
 
             // attack the nearest monster
-            for (int i = 0; i < kNumberOfDefenders && i < m_monsters.size(); ++i) {
-                auto & monster = m_monsters[i];
-                int dist = distance(monster.pos, m_ourBase.pos);
-                if (monster.hp < 0 || dist > kOutterCircle) continue;
-
-                attack_the_monster(j, monster);
+            for (auto & m : monstersNearBy) {
+                if (m.hp < 0) continue;
+                attack_the_monster(j, m);
                 return;
             }
 
             // attack the second enemy
-            for (int i = 0; i < kNumberOfDefenders && i < m_enemies.size(); ++i) {
-                auto & monster = m_enemies[i];
-                int dist = distance(monster.pos, m_ourBase.pos);
-                if (monster.hp < 0 || dist > kOutterCircle) continue;
-
-                attack_the_monster(j, monster);
+            for (auto & m : enemiesNearOurBase) {
+                if (m.hp < 0) continue;
+                attack_the_monster(j, m);
                 return;
             }
-
-            back_to_the_position(j, m_defaultPos[j]);
-        } else {
-            for (int idx = 0; idx < kNumberOfDefenders; ++idx) {
-                auto & hero = m_heros[idx];
-                // go farm
-                auto monstersNearBy = hero.discover(m_monsters);
-                // sort by distance to my hero (nearest to farest)
-                sort(monstersNearBy.begin(), monstersNearBy.end(), [&](const auto & a, const auto & b) {
-                    return distance(a.pos, hero.pos) < distance(b.pos, hero.pos);
-                });
-
-                if (monstersNearBy.size() != 0) {
-                    attack_the_monster(idx, monstersNearBy.front());
-                    continue;
-                }
-
-                back_to_the_position(idx, m_defaultPos[idx]);
-            }
-            return;
         }
+        if (m_queue.size() >= kNumberOfDefenders) return;
+
+        // lower priority: farm the monsters in the wild (per monster)
+        vector<Monster> monstersInTheWild;
+        for (const auto & m : m_monsters) {
+            int dist = distance(m.pos, m_ourBase.pos);
+            if (dist > kMidCircle && dist <= kOutterCircle) {
+                monstersInTheWild.push_back(m);
+            }
+        }
+        for (int idx = 0; idx < monstersInTheWild.size() && m_queue.size() < kNumberOfDefenders; ++idx) {
+            auto & monster = monstersInTheWild[idx];
+            if (monster.hp < 0) continue;
+
+            int i = find_nearest_defender(monster, m_heros);
+            auto & hero = m_heros[i];
+            if (hero.orderReceived()) continue;
+
+            attack_the_monster(i, monster);
+        }
+
+        // default operation
+        for (int i = 0; i < kNumberOfDefenders; ++i) {
+            auto & hero = m_heros[i];
+            if (!hero.orderReceived()) back_to_the_position(i, m_defaultPos[i]);
+        }
+        return;
     }
 
     void command_the_defenders() {
@@ -1357,7 +1361,14 @@ private:
     }
 
     bool canEliminateMonster(const Hero & hero, const Monster & monster) {
-        if (monster.hp < monster.eta(m_ourBase) * kHeroPhysicAttackDmg) {
+        if (monster.hp < 0) {
+            cerr << "Warning [Negative HP]: " << monster << endl;
+            return true;
+        }
+        auto eta = monster.eta(m_ourBase);
+        if (eta < 0) return true;
+
+        if (monster.hp < eta * kHeroPhysicAttackDmg) {
             return true;
         }
         return false;

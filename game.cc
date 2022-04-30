@@ -871,7 +871,7 @@ private:
         }
         hero.move(pos);
         // elvish: there
-        hero.say("sanomë");
+        hero.say("Sanomë");
         return false;
     }
 
@@ -1004,6 +1004,11 @@ private:
     // For defencer only: can update the state of the monster
     void attack_the_monster(int idx, Monster & monster) {
         auto & hero = m_heros[idx];
+        if (hero.orderReceived()) {
+            cerr << "Warning: " << hero  << "not available" << endl;
+            cerr << "cannot attack " << monster << endl;
+            return;
+        }
 
         // magic attack first
         if (m_ourBase.mp >= kMagicManaCost) {
@@ -1085,8 +1090,59 @@ private:
         }
     }
 
+    void self_protections() {
+        for (int i = 0; i < kNumberOfDefenders; ++i) {
+            if (m_heros[i].mad)
+                ++m_madness;
+        }
+
+        for (int idx = 0; idx < kNumberOfDefenders; ++idx) {
+            auto & hero = m_heros[idx];
+            if (hero.orderReceived()) continue;
+
+            // protect myself frist
+            if (shouldSelfProtect(hero) && m_ourBase.mp >= kMagicManaCost) {
+                Action a;
+                a.subject = idx;
+                a.verb = PROTECT;
+                a.object = hero.id;
+                m_queue.push(a);
+                m_ourBase.mp -= kMagicManaCost;
+                hero.end();
+                continue;
+            }
+
+            int j = other_defencer(idx);
+            auto & other = m_heros[j];
+            int dist = distance(hero.pos, other.pos);
+            // try to protect each other
+            if (hero.mad && dist < kHeroViewRange && m_ourBase.mp >= kMagicManaCost) {
+                Action a;
+                a.subject = idx;
+                a.verb = MOVE;
+                a.dest = other.pos;
+                a.object = other.id;
+                // elvish: help
+                a.msg = "Sáme";
+                m_queue.push(a);
+                hero.end();
+
+                if (!other.orderReceived()) {
+                    a.subject = j;
+                    a.verb = PROTECT;
+                    a.object = idx;
+                    m_queue.push(a);
+                    m_ourBase.mp -= kMagicManaCost;
+                    other.end();
+                }
+            }
+        }
+    }
+
     void command_the_defenders_new() {
         update_the_default_positions();
+        self_protections();
+        if (m_queue.size() >= kNumberOfDefenders) return;
 
         vector<Monster> enemiesNearOurBase;
         for (const auto & m : m_enemies) {

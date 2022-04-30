@@ -1,11 +1,11 @@
 #include <algorithm>
 #include <cmath>
 #include <iostream>
-#include <list>
 #include <queue>
 #include <sstream>
 #include <string>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 using namespace std;
@@ -49,6 +49,7 @@ class Monster;
 class Hero;
 class Brain;
 struct Action;
+class NaiveOptimiser;
 
 vector<Monster> discover_in_range(const vector<Monster> & monsters, Point pos, int range);
 vector<int> discover_in_range(const vector<Hero> & heros, Point pos, int range);
@@ -63,6 +64,7 @@ bool is_lower_area(const Point & ref, const Point & other);
 bool is_upper_area(const Point & ref, const Point & other);
 Point compute_cartesian_point(const Base & base, int r, int angle);
 int other_defencer(int idx);
+vector<Point> find_the_centers(const Point & p, const Point q, int r);
 
 /*****************************************************************************
  * Types
@@ -114,6 +116,73 @@ std::ostream & operator<<(std::ostream & os, const Point & p) {
     p.display(os);
     return os;
 }
+
+Point operator/(const Point & p, int div) {
+    if (div == 0) {
+        cerr << "Divide by zero exception: " << p << "/" << div << endl;
+        return p;
+    }
+    return Point(p.x / div, p.y / div);
+}
+
+// Given two different points P=(x1,x2) and Q=(y1,y2) and a real number r,
+// we want to compute the center of circle that pass through both points with radius r.
+vector<Point> find_the_centers(const Point & p, const Point q, int r) {
+    float dist = distance(p, q);
+    if (dist == 0) return { p };
+
+    if (dist > 2 * r) return {};
+
+    int half = dist / 2;
+    Point mid = (p + q) / 2;
+    if (half == r) return { mid };
+
+    // normalized direction
+    Point dir = Point(p.y - q.y, q.x - p.x) / (int)dist;
+
+    double lambda = std::sqrt(r * r - half * half);
+    double delta_x = dir.x * lambda;
+    double delta_y = dir.y * lambda;
+    Point delta(delta_x, delta_y);
+
+    return { mid + delta, mid - delta };
+}
+
+class NaiveOptimiser {
+public:
+    // find the maximum points enclosed in a circle of r
+    static vector<pair<Point, int>> solve(const vector<Point> & points, int r) {
+        if (points.empty()) return {};
+
+        vector<pair<Point, int>> ans;
+        int n = points.size();
+        vector<vector<bool>> visited(n, vector<bool>(n, false));
+        for (int i = 0; i != n; ++i) {
+            for (int j = 0; j != n; ++j) {
+                if (i == j || visited[i][j]) continue;
+
+                visited[i][j] = true;
+                visited[j][i] = true;
+                auto centers = find_the_centers(points[i], points[j], r);
+                for (const auto & c : centers) {
+                    int cnt = 0;
+
+                    for (const auto & p : points) {
+                        int dist = distance(c, p);
+                        if (dist <= r) ++cnt;
+                    }
+                    ans.push_back({c, cnt});
+                }
+            }
+        }
+        sort(ans.begin(), ans.end(), [] (const auto & p1, const auto & p2) {
+            return p1.second > p2.second;
+        });
+    }
+
+private:
+
+};
 
 enum Command {
     WAIT,
@@ -1158,10 +1227,6 @@ private:
                 enemiesNearOurBase.push_back(m);
             }
         }
-        // sort by risk
-        //sort(enemiesNearOurBase.begin(), enemiesNearOurBase.end(), [&](const auto & a, const auto & b) {
-        //    return eval_risk(m_ourBase, a) > eval_risk(m_ourBase, b);
-        //});
 
         // highest priority (per monster)
         if (enemiesNearOurBase.size() != 0) {

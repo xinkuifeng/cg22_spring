@@ -1087,6 +1087,13 @@ private:
             int degree = calc_degree_between(m_ourBase.pos, opponent.pos);
             Point p = compute_cartesian_point(m_ourBase, radius, degree);
             m_defaultPos[idx] = p;
+            if (opponentsNearOurBase.size() == 1) {
+                degree += 30;
+                if (degree < 60) {
+                    p = compute_cartesian_point(m_ourBase, radius, degree);
+                    m_defaultPos[1] = p;
+                }
+            }
         }
     }
 

@@ -1171,6 +1171,7 @@ private:
             if (m_heros[i].mad)
                 ++m_madness;
         }
+        if (m_queue.size() >= kNumberOfDefenders) return;
 
         for (int idx = 0; idx < kNumberOfDefenders; ++idx) {
             auto & hero = m_heros[idx];
@@ -1215,9 +1216,74 @@ private:
         }
     }
 
+    void pull_it_back() {
+        if (m_queue.size() >= kNumberOfDefenders) return;
+        if (m_ourBase.mp < kMagicManaCost) return;
+
+        vector<Monster> enemiesNearOurBase;
+        for (const auto & m : m_enemies) {
+            int dist = distance(m.pos, m_ourBase.pos);
+            if (dist <= kMidCircle) {
+                enemiesNearOurBase.push_back(m);
+            }
+        }
+        if (enemiesNearOurBase.empty()) return;
+
+        auto & monster = enemiesNearOurBase.front();
+        // cannot pull it back
+        if (monster.shield > 0) return;
+
+        int idx = find_nearest_defender(monster, m_heros);
+        auto & hero = m_heros[idx];
+        int j = other_defencer(idx);
+        auto & other = m_heros[j];
+        int eta = monster.eta(m_ourBase);
+        if (!hero.orderReceived()) {
+            int dist = distance(hero.pos, monster.pos);
+            if (dist <= kHeroViewRange) {
+                // round up
+                int turns = (dist + kHeroSpeed) / kHeroSpeed;
+                if (turns >= eta - 1) {
+                    Action a;
+                    a.subject = idx;
+                    a.verb = CONTROL;
+                    a.object = monster.id;
+                    a.dest = hero.pos;
+                    // elvish: this
+                    a.msg = "Ike";
+                    m_queue.push(a);
+                    m_ourBase.mp -= kMagicManaCost;
+                    hero.end();
+                    return;
+                }
+            }
+        } else {
+            int dist = distance(other.pos, monster.pos);
+            if (dist <= kHeroViewRange) {
+                int turns = (dist + kHeroSpeed) / kHeroSpeed;
+                if (turns >= eta - 1) {
+                    Action a;
+                    a.subject = j;
+                    a.verb = CONTROL;
+                    a.object = monster.id;
+                    a.dest = other.pos;
+                    // elvish: this
+                    a.msg = "Ike";
+                    m_queue.push(a);
+                    m_ourBase.mp -= kMagicManaCost;
+                    hero.end();
+                    return;
+                }
+            }
+        }
+    }
+
     void command_the_defenders_new() {
         update_the_default_positions();
+        // step 1
         self_protections();
+        // step2
+        pull_it_back();
         if (m_queue.size() >= kNumberOfDefenders) return;
 
         vector<Monster> enemiesNearOurBase;

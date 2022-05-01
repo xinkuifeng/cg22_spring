@@ -156,9 +156,16 @@ public:
 
         vector<pair<Point, int>> ans;
         int n = points.size();
+
+        // debug
+        cerr << "Optimizer number of input points: " << n << endl;
+        for (const auto & p : points) {
+            cerr << "point = " << p << endl;
+        }
+
         vector<vector<bool>> visited(n, vector<bool>(n, false));
-        for (int i = 0; i != n; ++i) {
-            for (int j = 0; j != n; ++j) {
+        for (int i = 0; i < n; ++i) {
+            for (int j = 0; j < n; ++j) {
                 if (i == j || visited[i][j]) continue;
 
                 visited[i][j] = true;
@@ -178,6 +185,7 @@ public:
         sort(ans.begin(), ans.end(), [] (const auto & p1, const auto & p2) {
             return p1.second > p2.second;
         });
+        return ans;
     }
 
 private:
@@ -1070,6 +1078,65 @@ private:
         }
     }
 
+    // discover the monsters near by and find the optimized point to attack
+    bool optimized_range_attack(int idx, const Monster & monster) {
+        auto & hero = m_heros[idx];
+        if (hero.orderReceived()) {
+            cerr << "Warning: " << hero  << "not available" << endl;
+            cerr << "cannot attack " << monster << endl;
+            return false;
+        }
+
+        auto monstersNearBy = discover_in_range(m_monsters, monster.pos, kHeroViewRange);
+        auto originalTargets = discover_in_range(m_monsters, monster.pos, kHeroPhysicAttackRange);
+        // may optimize the attack
+        if (monstersNearBy.size() >= 2) {
+            vector<Point> points;
+            for (const auto & m : monstersNearBy) {
+                points.push_back(m.pos);
+            }
+
+            // position and counts
+            vector<pair<Point, int>> res = NaiveOptimiser::solve(points, kHeroPhysicAttackRange);
+            if (!res.empty()) {
+                sort(res.begin(), res.end(), [&](const auto & p1, const auto & p2) {
+                    if (p1.second > p2.second) {
+                        return true;
+                    } else if (p1.second == p2.second) {
+                        return distance(m_ourBase.pos, p1.first) < distance(m_ourBase.pos, p2.first);
+                    } else {
+                        return false;
+                    }
+                });
+                auto plan = res.front();
+                cerr << "Optimizer ON: init plan=" << monster.pos << "; cnt=" << originalTargets.size() << endl;
+                cerr << "Optimizer ON: corrected plan=" << plan.first << "; cnt=" << plan.second << endl;
+                Action a;
+                a.subject = idx;
+                a.verb = MOVE;
+                a.dest = plan.first;
+                a.msg = "Aragorn";
+                m_queue.push(a);
+                hero.end();
+                int dist = distance(a.dest, monster.pos);
+                // the init target is enclosed in the circle
+                return dist < kHeroPhysicAttackRange;
+            }
+        }
+
+        if (!hero.orderReceived()) {
+            Action a;
+            a.subject = idx;
+            a.verb = MOVE;
+            a.dest = monster.pos;
+            a.object = monster.id;
+            a.msg = "Focus!";
+            m_queue.push(a);
+            hero.end();
+            return true;
+        }
+    }
+
     // For defencer only: can update the state of the monster
     void attack_the_monster(int idx, Monster & monster) {
         auto & hero = m_heros[idx];
@@ -1111,15 +1178,16 @@ private:
 
         // physic attack
         if (!hero.orderReceived()) {
-            Action a;
-            a.subject = idx;
-            a.verb = MOVE;
-            a.dest = monster.pos;
-            a.object = monster.id;
-            a.msg = "Focus!";
-            m_queue.push(a);
-            hero.end();
-            if (canEliminateMonster(hero, monster)) {
+            //Action a;
+            //a.subject = idx;
+            //a.verb = MOVE;
+            //a.dest = monster.pos;
+            //a.object = monster.id;
+            //a.msg = "Focus!";
+            //m_queue.push(a);
+            //hero.end();
+            bool attacked = optimized_range_attack(idx, monster);
+            if (attacked && canEliminateMonster(hero, monster)) {
                 monster.hp = -1;
             }
         }

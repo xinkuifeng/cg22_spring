@@ -931,6 +931,18 @@ private:
         });
         // have enough mana
         if (m_ourBase.mp >= 3 * kMagicManaCost) {
+            int dh = distance(m_theirBase.pos, hero.pos);
+            if (dh < kMidCircle) {
+                for (const auto & m : monstersNearBy) {
+                    // Use wind to boost the perf
+                    int dm = distance(m_theirBase.pos, m.pos);
+                    int diff = dm - dh;
+                    if (diff > 0 && diff < kRadiusOfWind && m.hp >= 17) {
+                        hero.wind(m_theirBase.pos);
+                        return true;
+                    }
+                }
+            }
             // protect first
             for (const auto & m : monstersNearBy) {
                 if (shouldUseShieldSpell(hero, m)) {

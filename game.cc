@@ -972,12 +972,56 @@ private:
         auto & hero = m_heros[2];
 
         auto monstersNearBy = hero.discover(m_monsters);
+        sort(monstersNearBy.begin(), monstersNearBy.end(), [&](const auto & a, const auto & b) {
+            int da = distance(a.pos, hero.pos);
+            int db = distance(b.pos, hero.pos);
+            if (da < db) {
+                return true;
+            } else if (da == db) {
+                return eval_risk(m_ourBase, a) > eval_risk(m_ourBase, b);
+            } else {
+                return false;
+            }
+        });
         if (monstersNearBy.empty()) {
             cruise_between_angles(hero, m_theirBase, 8500, 30, 60);
-            hero.say("Gank");
-        } else {
-            hero.move(monstersNearBy.front().pos);
             hero.say("Faralë");
+        } else {
+            //hero.move(monstersNearBy.front().pos);
+            //hero.say("Faralë");
+            // may optimize the attack
+            auto monster = monstersNearBy.front();
+            if (monstersNearBy.size() >= 2) {
+                vector<Point> points;
+                for (const auto & m : monstersNearBy) {
+                    points.push_back(m.pos);
+                }
+
+                // position and counts
+                vector<pair<Point, int>> res = NaiveOptimiser::solve(points, kHeroPhysicAttackRange);
+                if (!res.empty()) {
+                    sort(res.begin(), res.end(), [&](const auto & p1, const auto & p2) {
+                        if (p1.second > p2.second) {
+                            return true;
+                        } else if (p1.second == p2.second) {
+                            return distance(hero.pos, p1.first) < distance(hero.pos, p2.first);
+                        } else {
+                            return false;
+                        }
+                    });
+                    auto originalTargets = discover_in_range(m_monsters, monster.pos, kHeroPhysicAttackRange);
+                    auto plan = res.front();
+                    cerr << "Optimizer ON: init plan=" << monster.pos << "; cnt=" << originalTargets.size() << endl;
+                    cerr << "Optimizer ON: corrected plan=" << plan.first << "; cnt=" << plan.second << endl;
+                    hero.move(plan.first);
+                    hero.say("Aragorn");
+                }
+            }
+
+            if (!hero.orderReceived()) {
+                hero.move(monster.pos);
+                hero.say("Faralë");
+            }
         }
     }
 

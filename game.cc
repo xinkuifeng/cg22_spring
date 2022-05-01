@@ -600,7 +600,7 @@ int find_nearest_defender(const Monster & monster, const vector<Hero> & heros) {
 class Brain {
 public:
     Brain(const Base & ours, const Base & theirs) :
-        m_ourBase(ours), m_theirBase(theirs), m_turns(0), m_madness(0), m_queue()
+        m_ourBase(ours), m_theirBase(theirs), m_turns(0), m_allIn(false), m_madness(0), m_queue()
     {
         m_phase = StartingGame;
         // the blue team
@@ -663,16 +663,33 @@ public:
         classification(m_monsters);
     }
 
+    bool is_opponent_all_in() {
+        if (m_opponents.size() == kHerosPerPlayer) {
+            for (const auto & op : m_opponents) {
+                int dist = distance(op.pos, m_ourBase.pos);
+                if (dist > kOutterCircle) {
+                    return false;
+                }
+            }
+            return true;
+        }
+        return false;
+    }
+
     void play() {
         ++m_turns;
+
+        if (!m_allIn) {
+            m_allIn = is_opponent_all_in();
+        }
 
         int maxHp = find_max_hp(m_enemies);
         if (maxHp >= 24 && m_phase == MiddleGame) {
             m_phase = EndingGame;
         } else if (maxHp >= 17 && m_ourBase.mp >= 200) {
             m_phase = MiddleGame;
-        } else {
-            // do nothing
+        } else if (m_allIn) {
+            m_phase = MiddleGame;
         }
 
         // planning phase
@@ -854,6 +871,14 @@ private:
     void command_the_attacker_new() {
         static int step = 0;
 
+        // short-cut: against all soccers
+        if (m_allIn && step <= 2) {
+            if (rush_to_the_position(m_attackPos, true)) {
+                step = 3;
+            }
+            return;
+        }
+
         if (m_phase == StartingGame) {
             go_hunting();
             return;
@@ -881,7 +906,7 @@ private:
         }
 
         if (m_ourBase.mp < 30) {
-            range_and_protect();
+            go_hunting();
         } else {
             wait_and_protect(m_attackPos);
         }
@@ -901,7 +926,7 @@ private:
             auto monstersNearBy = hero.discover(m_monsters);
             if (monstersNearBy.size() != 0) {
                 for (const auto & m : monstersNearBy) {
-                    if (m.eta(m_theirBase) < 0 && m.shield == 0 && m.hp >= 16) {
+                    if (m.eta(m_theirBase) < 0 && m.shield == 0 && (m.hp >= 16 || m_allIn)) {
                         hero.control(m.id, m_theirBase.pos);
                         return false;
                     }
@@ -934,10 +959,12 @@ private:
             int dh = distance(m_theirBase.pos, hero.pos);
             if (dh < kMidCircle) {
                 for (const auto & m : monstersNearBy) {
+                    if (m.shield) continue;
+
                     // Use wind to boost the perf
                     int dm = distance(m_theirBase.pos, m.pos);
                     int diff = dm - dh;
-                    if (diff > 0 && diff < kRadiusOfWind && m.hp >= 17) {
+                    if (diff > 0 && diff < kRadiusOfWind && (m.hp >= 17 || m_allIn)) {
                         hero.wind(m_theirBase.pos);
                         return true;
                     }
@@ -1772,6 +1799,7 @@ private:
 
     int m_turns;
     int m_madness;
+    bool m_allIn;
     Phase m_phase;
     bool m_blue;
 

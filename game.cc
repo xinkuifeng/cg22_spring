@@ -963,8 +963,9 @@ private:
 
                     // Use wind to boost the perf
                     int dm = distance(m_theirBase.pos, m.pos);
+                    int mh = distance(hero.pos, m.pos);
                     int diff = dm - dh;
-                    if (diff > 0 && diff < kRadiusOfWind && (m.hp >= 17 || m_allIn)) {
+                    if (diff > 0 && mh < kRadiusOfWind && (m.hp >= 17 || m_allIn)) {
                         hero.wind(m_theirBase.pos);
                         return true;
                     }

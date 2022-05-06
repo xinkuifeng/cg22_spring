@@ -65,6 +65,7 @@ bool is_upper_area(const Point & ref, const Point & other);
 Point compute_cartesian_point(const Base & base, int r, int angle);
 int other_defencer(int idx);
 vector<Point> find_the_centers(const Point & p, const Point q, int r);
+void cruise_between_angles(Hero & hero, const Base & ref, int radius, int low, int high);
 
 /*****************************************************************************
  * Types
@@ -597,6 +598,21 @@ int find_nearest_defender(const Monster & monster, const vector<Hero> & heros) {
     return ans;
 }
 
+void cruise_between_angles(Hero & hero, const Base & ref, int radius, int low, int high) {
+    static bool goHighPos = false;
+    auto deg = calc_degree_between(ref.pos, hero.pos);
+    if (deg < low + 1) {
+        goHighPos = true;
+    } else if (deg > high - 1) {
+        goHighPos = false;
+    }
+    if (goHighPos) {
+        hero.move(ref, radius, high);
+    } else {
+        hero.move(ref, radius, low);
+    }
+}
+
 class Brain {
 public:
     Brain(const Base & ours, const Base & theirs) :
@@ -990,21 +1006,6 @@ private:
         // elvish: there
         hero.say("Sanomë");
         return false;
-    }
-
-    void cruise_between_angles(Hero & hero, const Base & ref, int radius, int low, int high) {
-        static bool goHighPos = false;
-        auto deg = calc_degree_between(m_theirBase.pos, hero.pos);
-        if (deg < low + 1) {
-            goHighPos = true;
-        } else if (deg > high - 1) {
-            goHighPos = false;
-        }
-        if (goHighPos) {
-            hero.move(m_theirBase, radius, high);
-        } else {
-            hero.move(m_theirBase, radius, low);
-        }
     }
 
     // the attacker goes hunting

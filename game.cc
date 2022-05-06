@@ -1220,6 +1220,7 @@ private:
             hero.end();
             return true;
         }
+        return false;
     }
 
     // For defencer only: can update the state of the monster

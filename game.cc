@@ -1869,8 +1869,11 @@ int main()
             int vx; // Trajectory of this monster
             int vy;
             int near_base; // 0=monster with no target yet, 1=monster targeting a base
-            int threat_for; // Given this monster's trajectory, is it a threat to 1=your base, 2=your opponent's base, 0=neither
-            cin >> id >> type >> x >> y >> shield_life >> is_controlled >> health >> vx >> vy >> near_base >> threat_for; cin.ignore();
+            // Given this monster's trajectory,
+            // is it a threat to 1=your base, 2=your opponent's base, 0=neither
+            int threat_for;
+            cin >> id >> type >> x >> y >> shield_life >> is_controlled >> health
+                >> vx >> vy >> near_base >> threat_for; cin.ignore();
 
             Entity e;
             e.id = id;
@@ -1885,7 +1888,7 @@ int main()
             units.push_back(e);
         }
         brain.parse(units);
-        brain.showGameInfo();
+        brain.showGameInfo(); // debug
         brain.play();
     }
 }

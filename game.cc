@@ -1837,11 +1837,11 @@ int main()
     int heroes_per_player; // Always 3
     cin >> heroes_per_player; cin.ignore();
 
-    Base myBase, hisBase;
-    myBase.pos = Point(base_x, base_y);
-    hisBase.pos = Point(kWidth - base_x, kHeight - base_y);
+    Base ourBase, theirBase;
+    ourBase.pos = Point(base_x, base_y);
+    theirBase.pos = Point(kWidth - base_x, kHeight - base_y);
+    Brain brain(ourBase, theirBase);
 
-    Brain brain(myBase, hisBase);
     // game loop
     while (1) {
         for (int i = 0; i < 2; i++) {

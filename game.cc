@@ -1841,11 +1841,7 @@ int main()
     myBase.pos = Point(base_x, base_y);
     hisBase.pos = Point(kWidth - base_x, kHeight - base_y);
 
-    Point delta = Point(565, 565);
-    Point post = base_x == 0 ? myBase.pos + delta : myBase.pos - delta;
-
     Brain brain(myBase, hisBase);
-
     // game loop
     while (1) {
         for (int i = 0; i < 2; i++) {

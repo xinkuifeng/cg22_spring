@@ -158,12 +158,6 @@ public:
         vector<pair<Point, int>> ans;
         int n = points.size();
 
-        // debug
-        cerr << "Optimizer number of input points: " << n << endl;
-        for (const auto & p : points) {
-            cerr << "point = " << p << endl;
-        }
-
         vector<vector<bool>> visited(n, vector<bool>(n, false));
         for (int i = 0; i < n; ++i) {
             for (int j = 0; j < n; ++j) {
@@ -188,9 +182,6 @@ public:
         });
         return ans;
     }
-
-private:
-
 };
 
 enum Command {

@@ -42,7 +42,7 @@ const int kVeryBigDistance = 40000;
  * Forward declarations
  ****************************************************************************/
 struct Point;
-struct RadianPoint;
+struct RadialPoint;
 struct Base;
 class Entity;
 class Monster;
@@ -55,7 +55,7 @@ vector<Monster> discover_in_range(const vector<Monster> & monsters, Point pos, i
 vector<int> discover_in_range(const vector<Hero> & heros, Point pos, int range);
 double convert_degree_to_radian(int degree);
 int convert_radian_to_degree(double theta);
-Point convert_radian_to_cartesian(const RadianPoint & rp);
+Point convert_polar_to_cartesian(const RadialPoint & rp);
 int calc_degree_between(const Point & ref, const Point & other);
 bool is_bottom_lane(const Point & ref, const Point & other);
 bool is_mid_lane(const Point & ref, const Point & other);
@@ -241,19 +241,19 @@ std::ostream & operator<<(std::ostream & os, const Action & a) {
     return os;
 }
 
-struct RadianPoint {
+struct RadialPoint {
     Point orig;
     int radius;
     int angle;
 
-    RadianPoint(Point o, int r, int deg) : orig(o), radius(r), angle(deg) {}
+    RadialPoint(Point o, int r, int deg) : orig(o), radius(r), angle(deg) {}
 
     void display(std::ostream & os) const {
         os << "orig=" << orig << "; r=" << radius << " ; deg=" << angle;
     }
 };
 
-std::ostream & operator<<(std::ostream & os, const RadianPoint & rp) {
+std::ostream & operator<<(std::ostream & os, const RadialPoint & rp) {
     rp.display(os);
     return os;
 }
@@ -304,7 +304,7 @@ int calc_degree_between(const Point & ref, const Point & other) {
     return convert_radian_to_degree(theta);
 }
 
-Point convert_radian_to_cartesian(const RadianPoint & rp) {
+Point convert_polar_to_cartesian(const RadialPoint & rp) {
     double theta = convert_degree_to_radian(rp.angle);
     double delta_x = rp.radius * std::cos(theta);
     double detta_y = rp.radius * std::sin(theta);
@@ -437,8 +437,8 @@ Point compute_cartesian_point(const Base & base, int r, int angle) {
     bool mirrow = base.pos.x == 0 ? false : true;
 
     if (mirrow) angle += 180;
-    RadianPoint rp(base.pos, r, angle);
-    return convert_radian_to_cartesian(rp);
+    RadialPoint rp(base.pos, r, angle);
+    return convert_polar_to_cartesian(rp);
 }
 
 class Hero : public Entity {
@@ -455,8 +455,8 @@ public:
     void move(const Point & p, int r, int angle, bool mirrow = false) {
         if (mirrow) angle += 180;
 
-        RadianPoint rp(p, r, angle);
-        move(convert_radian_to_cartesian(rp));
+        RadialPoint rp(p, r, angle);
+        move(convert_polar_to_cartesian(rp));
     }
 
     void move(const Base & base, int r, int angle) {
